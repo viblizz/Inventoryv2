@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Viblizz Cloud Inventory App</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f6f9; margin: 0; padding: 20px; }
+        .container { max-width: 1400px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); position: relative; }
+        
+        #sync-status { position: absolute; top: 20px; right: 20px; font-size: 13px; font-weight: bold; background: #e8f5e9; color: #2e7d32; padding: 5px 12px; border-radius: 20px; border: 1px solid #c8e6c9; }
+        h2 { text-align: center; color: #333; margin-bottom: 20px; margin-top: 10px; }
+        
+        .tab { overflow: hidden; border-bottom: 2px solid #ccc; background-color: #f1f1f1; border-radius: 5px 5px 0 0; display: flex; flex-wrap: wrap; }
+        .tab button { background-color: inherit; flex: 1; border: none; outline: none; cursor: pointer; padding: 14px 5px; transition: 0.3s; font-size: 14px; font-weight: bold; color: #555; }
+        .tab button:hover { background-color: #ddd; color: #000; }
+        .tab button.active { background-color: #007bff; color: white; }
+        
+        .tabcontent { display: none; padding: 20px; border: 1px solid #ccc; border-top: none; border-radius: 0 0 5px 5px; background: #fff; }
+        .section-box { border: 1px dashed #aaa; padding: 15px; margin-bottom: 20px; border-radius: 5px; background: #fafafa; }
+        .bulk-box { background: #eef2f5; border: 1px solid #c8d6e5; border-left: 4px solid #007bff; }
+        
+        label { font-weight: bold; display: block; margin-bottom: 5px; color: #333; font-size: 14px; }
+        input[type="text"], input[type="file"], input[type="number"], select { width: 100%; padding: 10px; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        input.inline-input { width: auto; display: inline-block; margin-bottom: 0; padding: 6px; }
+        input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; }
+        
+        .btn { background-color: #28a745; color: white; padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: bold; }
+        .btn:hover { background-color: #218838; }
+        .btn-small { padding: 6px 10px; font-size: 12px; margin-bottom: 2px;}
+        .btn-danger { background-color: #dc3545; }
+        .btn-warning { background-color: #ffc107; color: #000; }
+        .btn-warning:hover { background-color: #e0a800; }
+        .btn-info { background-color: #17a2b8; }
+        
+        .table-responsive { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 13px; min-width: 1200px; }
+        table, th, td { border: 1px solid #ddd; }
+        th, td { padding: 8px; text-align: left; vertical-align: middle; }
+        th { background-color: #007bff; color: white; position: sticky; top: 0; }
+        
+        .badge-green { background: #e8f5e9; color: #2e7d32; padding: 3px 8px; border-radius: 12px; font-weight: bold; }
+        .badge-red { background: #ffebee; color: #c62828; padding: 3px 8px; border-radius: 12px; font-weight: bold; }
+        .ref-sku { color: #856404; background-color: #fff3cd; padding: 2px 6px; border-radius: 4px; font-size: 12px; font-family: monospace; }
+        
+        .fade-out { animation: fadeOut 2s forwards; }
+        @keyframes fadeOut { 0% { opacity: 1; } 70% { opacity: 1; } 100% { opacity: 0; } }
+        
+        .price-input { width: 70px !important; padding: 5px !important; margin-bottom: 0 !important; font-size: 13px; }
+        .highlight-col { background-color: #f8f9fa; font-weight: bold; }
+        .profit-col { font-weight: bold; }
+        
+        /* Flexbox for action buttons */
+        .action-bar { display: flex; gap: 15px; align-items: center; flex-wrap: wrap; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div id="sync-status">🔴 Connecting...</div>
+    <h2>Viblizz Warehouse & Inventory</h2>
+
+    <div class="tab">
+        <button class="tablinks active" onclick="window.openTab(event, 'MasterStock')">1. Master Stock</button>
+        <button class="tablinks" onclick="window.openTab(event, 'ASINMapping')">2. ASIN Mapping</button>
+        <button class="tablinks" onclick="window.openTab(event, 'InventoryStatus')">3. Live Sync</button>
+        <button class="tablinks" onclick="window.openTab(event, 'OrderProcessing')">4. Daily Orders</button>
+        <button class="tablinks" onclick="window.openTab(event, 'SalesAlerts')">5. Sales Trends</button>
+        <button class="tablinks" onclick="window.openTab(event, 'PricingSystem')" style="background-color: #e3f2fd; color: #0277bd;">6. Pricing System</button>
+    </div>
+
+    <div id="MasterStock" class="tabcontent" style="display:block;">
+        <h3>Update Physical Warehouse Stock</h3>
+        <div class="section-box">
+            <div style="display: flex; gap: 15px;">
+                <div style="flex: 1;">
+                    <label>Master SKU:</label>
+                    <input type="text" id="masterSkuInput" list="skuSuggestions" oninput="window.autoFillPurchasePrice()" placeholder="Start typing Master SKU..." autocomplete="off">
+                    <datalist id="skuSuggestions"></datalist>
+                </div>
+                <div style="flex: 1;">
+                    <label>Purchase Price (₹) <span style="color:red">*</span></label>
+                    <input type="number" id="purchasePriceInput" placeholder="Latest per unit cost">
+                </div>
+            </div>
+
+            <div style="display: flex; gap: 15px;">
+                <div style="flex: 1;">
+                    <label>Action:</label>
+                    <select id="stockAction">
+                        <option value="add">➕ Add to Current Stock</option>
+                        <option value="set">🔄 Set Exact Stock (Overwrite)</option>
+                    </select>
+                </div>
+                <div style="flex: 1;">
+                    <label>Quantity:</label>
+                    <input type="number" id="masterStockInput" placeholder="Enter quantity">
+                </div>
+            </div>
+            
+            <button class="btn" onclick="window.saveMasterStock()">Update Warehouse DB</button>
+            <span id="stockSuccessMsg" style="color: #28a745; font-weight: bold; margin-left: 15px; display: none;">✔️ Stock Updated!</span>
+        </div>
+        
+        <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+            <h4>Current Warehouse Stock</h4>
+            <select id="masterFilter" onchange="window.renderMasterStockTable()" style="width: 250px;">
+                <option value="all">Show All Master SKUs</option>
+                <option value="unmapped">Show Unmapped (0 ASINs Linked)</option>
+            </select>
+        </div>
+
+        <div class="table-responsive">
+            <table>
+                <thead><tr><th>Master SKU</th><th>Purchase Price (₹)</th><th>Linked ASINs</th><th>Current Stock</th><th>Action</th></tr></thead>
+                <tbody id="masterStockTableBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div id="ASINMapping" class="tabcontent">
+        <h3>Map Amazon ASINs to Master SKUs</h3>
+        <div class="section-box">
+            <label>Upload raw "All Listings Report" (.txt)</label>
+            <input type="file" id="listingsReportFile" accept=".txt, .csv, .tsv, .xlsx">
+            <button class="btn" onclick="window.processListingsReport()">Load ASINs & SKUs to Cloud</button>
+        </div>
+        <div class="section-box bulk-box">
+            <button class="btn btn-info" onclick="window.downloadMappingTemplate()">Download Pre-filled Template (.xlsx)</button><br>
+            <label style="margin-top: 10px;">Upload Filled Mapping File:</label>
+            <input type="file" id="bulkMappingFile" accept=".csv, .xlsx">
+            <button class="btn" onclick="window.uploadBulkMapping()">Upload & Map in Cloud</button>
+        </div>
+        <div style="margin-top: 15px; margin-bottom: 10px;">
+            <button class="btn btn-danger btn-small" onclick="window.deleteSelectedASINs()">🗑️ Delete Selected</button>
+        </div>
+        <div class="table-responsive">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 40px; text-align: center;"><input type="checkbox" id="selectAllASINs" onclick="window.toggleAllASINs()"></th>
+                        <th>Amazon SKU (Ref)</th><th>ASIN</th><th>Product Title</th><th>Map to Master SKU</th><th>Pack Qty</th><th>Status / Action</th>
+                    </tr>
+                </thead>
+                <tbody id="asinMappingTableBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div id="InventoryStatus" class="tabcontent">
+        <h3>Sync Amazon Live Inventory</h3>
+        <div class="section-box">
+            <input type="file" id="amazonInventoryFile" accept=".txt, .csv, .xlsx">
+            <button class="btn" onclick="window.processInventoryFile()">Calculate Live Inventory</button>
+        </div>
+        <div class="table-responsive"><table><thead><tr><th>Master SKU</th><th>Live on Amazon (Pack Adjusted)</th><th>Available Warehouse Stock</th></tr></thead><tbody id="inventoryTableBody"></tbody></table></div>
+    </div>
+
+    <div id="OrderProcessing" class="tabcontent">
+        <h3>Process Daily Orders & Deduct Stock</h3>
+        <div class="section-box">
+            <label>Upload Daily Sales / Business Report (.csv):</label>
+            <input type="file" id="dailyOrderFile" accept=".csv, .xlsx, .txt">
+            
+            <div class="action-bar">
+                <button class="btn" onclick="window.processOrderFile()">Process Orders & Sync to Cloud</button>
+                <button class="btn btn-warning" onclick="window.reverseOrderFile()">⏪ Reverse This File (Undo Mistake)</button>
+            </div>
+            <p style="font-size: 12px; color: #666; margin-top: 10px;">* If you uploaded the wrong file, select the exact same file again and click "Reverse This File" to add the stock back and fix your sales history.</p>
+        </div>
+        
+        <div class="table-responsive"><table><thead><tr><th>Master SKU</th><th>Opening Stock</th><th>Action Processed</th><th>Closing Stock</th></tr></thead><tbody id="orderTableBody"></tbody></table></div>
+    </div>
+
+    <div id="SalesAlerts" class="tabcontent">
+        <h3>3-Day Sales Tracking & Alerts</h3>
+        <div class="table-responsive"><table><thead><tr><th>Master SKU</th><th>Last 3 Days Sales</th><th>3-Day Sum (Req)</th><th>Sales Trend</th><th>Current Stock</th><th>Status</th></tr></thead><tbody id="salesAlertsTableBody"></tbody></table></div>
+    </div>
+
+    <div id="PricingSystem" class="tabcontent">
+        <h3>SKU Pricing & Profit Calculator</h3>
+        <p style="color: #666; font-size: 13px;">Upload your <b>All Listings Report</b> here to fetch SKUs and auto-update your Current Selling Prices.</p>
+        
+        <div class="section-box">
+            <label>Update Pricing SKUs & Selling Prices (Upload "All Listings Report"):</label>
+            <input type="file" id="pricingReportFile" accept=".txt, .csv, .tsv, .xlsx">
+            <button class="btn" onclick="window.processPricingReport()">Load SKUs & Fetch Live Prices</button>
+        </div>
+
+        <div class="table-responsive">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Seller SKU</th>
+                        <th>ASIN</th>
+                        <th>Master SKU (Auto)</th>
+                        <th>Cost Price (₹)</th>
+                        <th>Amz Fee</th>
+                        <th>Del. Fee</th>
+                        <th>Pack Fee</th>
+                        <th class="highlight-col">Min Selling Price</th>
+                        <th>Current Sell</th>
+                        <th class="profit-col">Current Profit</th>
+                        <th>Desired Sell</th>
+                        <th class="profit-col">Desired Profit</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody id="pricingTableBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+</div>
+
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-app.js";
+    import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-database.js";
+
+    const firebaseConfig = {
+        apiKey: "AIzaSyC0wdeubQEyY9nrvT942lr-kiOLuHpMNjU",
+        authDomain: "inventory-app-c47eb.firebaseapp.com",
+        databaseURL: "https://inventory-app-c47eb-default-rtdb.firebaseio.com",
+        projectId: "inventory-app-c47eb",
+        storageBucket: "inventory-app-c47eb.firebasestorage.app",
+        messagingSenderId: "762528740250",
+        appId: "1:762528740250:web:9fe73a4281fe4f92854023"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const database = getDatabase(app);
+
+    // Updated to include processedOrders tracking duplicate prevention
+    window.cloudDB = { masters: {}, asins: {}, sales: {}, purchasePrices: {}, pricingSKUs: {}, processedOrders: {} };
+
+    onValue(ref(database, 'inventory'), (snapshot) => {
+        const data = snapshot.val() || { masters: {}, asins: {}, sales: {}, purchasePrices: {}, pricingSKUs: {}, processedOrders: {} };
+        window.cloudDB.masters = data.masters || {};
+        window.cloudDB.asins = data.asins || {};
+        window.cloudDB.sales = data.sales || {};
+        window.cloudDB.purchasePrices = data.purchasePrices || {};
+        window.cloudDB.pricingSKUs = data.pricingSKUs || {};
+        window.cloudDB.processedOrders = data.processedOrders || {};
+
+        document.getElementById("sync-status").innerHTML = "🟢 Live Sync Active";
+
+        window.renderMasterStockTable();
+        window.renderASINMappingTable();
+        window.renderSalesAlertsTable();
+        window.renderPricingTable(); 
+        window.updateSKUSuggestions(); 
+    });
+
+    function getDB() { return JSON.parse(JSON.stringify(window.cloudDB)); }
+    async function saveDB(newDbObj) {
+        document.getElementById("sync-status").innerHTML = "⏳ Saving...";
+        try {
+            await set(ref(database, 'inventory'), newDbObj);
+            document.getElementById("sync-status").innerHTML = "🟢 Live Sync Active";
+        } catch (error) { 
+            console.error(error);
+            alert("Firebase Data Error: Check for invalid characters like . # $ [ ] /"); 
+        }
+    }
+
+    window.openTab = function(evt, tabName) {
+        document.querySelectorAll(".tabcontent").forEach(tab => tab.style.display = "none");
+        document.querySelectorAll(".tablinks").forEach(link => link.classList.remove("active"));
+        document.getElementById(tabName).style.display = "block";
+        evt.currentTarget.classList.add("active");
+    };
+
+    function normalizeRow(row) { let newRow = {}; for (let key in row) { newRow[key.toString().trim().toUpperCase()] = row[key]; } return newRow; }
+    function extractASIN(row) { return row["(CHILD) ASIN"] || row["CHILD ASIN"] || row["ASIN1"] || row["ASIN"] || null; }
+    function extractQuantity(row) { return parseInt((row["QUANTITY"] !== undefined ? row["QUANTITY"] : row["QTY"]) || 0); }
+    function extractOrders(row) { return parseInt((row["UNITS ORDERED"] !== undefined ? row["UNITS ORDERED"] : row["ORDERED"]) || 0); }
+    function extractSellerSKU(row) { return row["SELLER-SKU"] || row["SKU"] || row["MERCHANT SKU"] || null; }
+    function extractPrice(row) { return parseFloat(row["PRICE"] || row["YOUR PRICE"] || 0); }
+
+    // --- TAB 1: MASTER STOCK & PURCHASE PRICE ---
+    window.updateSKUSuggestions = function() {
+        let db = getDB(); let html = "";
+        for (let sku in db.masters) html += `<option value="${sku}">`;
+        let dl = document.getElementById("skuSuggestions"); if(dl) dl.innerHTML = html;
+    };
+
+    window.autoFillPurchasePrice = function() {
+        let sku = document.getElementById("masterSkuInput").value.trim().toUpperCase();
+        let db = getDB();
+        if (db.purchasePrices[sku]) document.getElementById("purchasePriceInput").value = db.purchasePrices[sku];
+    };
+
+    window.saveMasterStock = async function() {
+        let sku = document.getElementById("masterSkuInput").value.trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_");
+        let stockInput = parseInt(document.getElementById("masterStockInput").value.trim());
+        let purchasePrice = parseFloat(document.getElementById("purchasePriceInput").value.trim());
+        let action = document.getElementById("stockAction").value;
+
+        if (!sku || isNaN(stockInput) || isNaN(purchasePrice)) return alert("Please enter valid SKU, Stock, and Purchase Price.");
+        
+        let db = getDB();
+        if (action === "add") { let currentStock = db.masters[sku] || 0; db.masters[sku] = currentStock + stockInput; } 
+        else { db.masters[sku] = stockInput; }
+        
+        db.purchasePrices[sku] = purchasePrice;
+        await saveDB(db);
+
+        document.getElementById("masterSkuInput").value = "";
+        document.getElementById("masterStockInput").value = "";
+        document.getElementById("purchasePriceInput").value = "";
+
+        let msgElement = document.getElementById("stockSuccessMsg");
+        msgElement.style.display = "inline-block"; msgElement.classList.remove("fade-out");
+        void msgElement.offsetWidth; msgElement.classList.add("fade-out");
+    };
+
+    window.renderMasterStockTable = function() {
+        let db = getDB(); let html = "";
+        let filterSelect = document.getElementById("masterFilter");
+        let filterValue = filterSelect ? filterSelect.value : "all";
+        
+        let linkedCounts = {};
+        for (let sku in db.masters) linkedCounts[sku] = 0;
+        for (let asin in db.asins) { let mSku = db.asins[asin].master; if (mSku && db.masters[mSku] !== undefined) linkedCounts[mSku] = (linkedCounts[mSku] || 0) + 1; }
+
+        for (let sku in db.masters) {
+            let count = linkedCounts[sku] || 0;
+            if (filterValue === "unmapped" && count > 0) continue;
+            let badgeHtml = count > 0 ? `<span class="badge-green">${count} Linked</span>` : `<span class="badge-red">0 Linked</span>`;
+            let pPrice = db.purchasePrices[sku] || 0;
+
+            html += `<tr>
+                <td><strong>${sku}</strong></td>
+                <td>₹${pPrice}</td>
+                <td>${badgeHtml}</td>
+                <td>${db.masters[sku]}</td>
+                <td style="white-space: nowrap;">
+                    <button class="btn btn-small btn-info" onclick="window.editPurchasePrice('${sku}')">💲 Price</button>
+                    <button class="btn btn-small btn-warning" onclick="window.renameMaster('${sku}')">✏️ Rename</button>
+                    <button class="btn btn-small btn-danger" onclick="window.deleteMaster('${sku}')">🗑️ Del</button>
+                </td>
+            </tr>`;
+        }
+        let tbody = document.getElementById("masterStockTableBody"); if(tbody) tbody.innerHTML = html;
+    };
+
+    window.editPurchasePrice = async function(sku) {
+        let db = getDB(); let oldPrice = db.purchasePrices[sku] || 0;
+        let newPrice = prompt(`Update Purchase Price for ${sku} (₹):\n\nCurrent: ₹${oldPrice}`, oldPrice);
+        if(newPrice !== null && !isNaN(newPrice) && newPrice.trim() !== "") { db.purchasePrices[sku] = parseFloat(newPrice); await saveDB(db); }
+    };
+
+    window.renameMaster = async function(oldSku) {
+        let newSku = prompt(`Rename Master SKU:\n\nEnter new name for "${oldSku}":`, oldSku);
+        if (!newSku || newSku.trim() === "" || newSku.trim().toUpperCase() === oldSku) return;
+        newSku = newSku.trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_"); 
+        let db = getDB();
+        if (db.masters[newSku] !== undefined) return alert("SKU already exists.");
+
+        db.masters[newSku] = db.masters[oldSku]; delete db.masters[oldSku];
+        if (db.sales[oldSku]) { db.sales[newSku] = db.sales[oldSku]; delete db.sales[oldSku]; }
+        if (db.purchasePrices[oldSku]) { db.purchasePrices[newSku] = db.purchasePrices[oldSku]; delete db.purchasePrices[oldSku]; }
+        for (let asin in db.asins) { if (db.asins[asin].master === oldSku) db.asins[asin].master = newSku; }
+        await saveDB(db);
+    };
+
+    window.deleteMaster = async function(sku) {
+        if(!confirm(`Delete Master SKU: ${sku}?`)) return;
+        let db = getDB(); delete db.masters[sku]; delete db.sales[sku]; delete db.purchasePrices[sku];
+        await saveDB(db);
+    };
+
+    // --- TAB 2: ASIN MAPPING ---
+    window.processListingsReport = function() {
+        let file = document.getElementById('listingsReportFile').files[0]; if(!file) return alert("Please select a file!");
+        let reader = new FileReader();
+        reader.onload = async function(e) {
+            let data = new Uint8Array(e.target.result); let workbook = XLSX.read(data, {type: 'array'});
+            let json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+            let db = getDB(); let count = 0;
+            json.forEach(rawRow => {
+                let row = normalizeRow(rawRow); let asin = extractASIN(row); let sSku = extractSellerSKU(row); let title = row["ITEM-NAME"] || "No Title";
+                if(asin) { asin = asin.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_");
+                    if(!db.asins[asin]) { db.asins[asin] = {master: "", pack: 1, title: title, sellerSku: sSku}; count++; }
+                    else { if(db.asins[asin].title==="No Title") db.asins[asin].title=title; if(!db.asins[asin].sellerSku) db.asins[asin].sellerSku=sSku; }
+                }
+            });
+            await saveDB(db); alert(`${count} ASINs Loaded`);
+        }; reader.readAsArrayBuffer(file);
+    };
+
+    window.renderASINMappingTable = function() {
+        let db = getDB(); let html = "";
+        for (let asin in db.asins) {
+            let data = db.asins[asin]; let status = data.master ? `<span class="badge-green">Mapped</span>` : `<span class="badge-red">Unmapped</span>`;
+            html += `<tr><td style="text-align:center;"><input type="checkbox" class="asin-checkbox" value="${asin}"></td>
+                <td><span class="ref-sku">${data.sellerSku||"N/A"}</span></td><td><strong>${asin}</strong></td>
+                <td><span class="truncate" title="${data.title}">${data.title}</span></td>
+                <td><input type="text" id="map_master_${asin}" class="inline-input" value="${data.master}"></td>
+                <td><input type="number" id="map_pack_${asin}" class="inline-input price-input" value="${data.pack}" min="1"></td>
+                <td style="white-space: nowrap;">${status} <br><br> <button class="btn btn-small" onclick="window.saveSingleMapping('${asin}')">Save</button></td></tr>`;
+        }
+        let tbody = document.getElementById("asinMappingTableBody"); if(tbody) tbody.innerHTML = html;
+    };
+
+    window.downloadMappingTemplate = function() {
+        let db = getDB(); let dataToExport = [];
+        for (let asin in db.asins) { dataToExport.push({ "Amazon SKU (Ref)": db.asins[asin].sellerSku || "N/A", "ASIN": asin, "Product Title": db.asins[asin].title, "Master SKU": db.asins[asin].master || "", "Pack Qty": db.asins[asin].pack || 1 }); }
+        if (dataToExport.length === 0) return alert("No ASINs loaded yet!");
+        let worksheet = XLSX.utils.json_to_sheet(dataToExport); worksheet['!cols'] = [{wch:20}, {wch:15}, {wch:60}, {wch:25}, {wch:12}];
+        let workbook = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(workbook, worksheet, "Bulk_Mapping"); XLSX.writeFile(workbook, "ASIN_Bulk_Mapping.xlsx");
+    };
+
+    window.uploadBulkMapping = function() {
+        let file = document.getElementById('bulkMappingFile').files[0]; if (!file) return alert("Select filled template!");
+        document.getElementById("sync-status").innerHTML = "⚙️ Processing File...";
+        let reader = new FileReader();
+        reader.onload = async function(e) {
+            try {
+                let data = new Uint8Array(e.target.result); let workbook = XLSX.read(data, {type: 'array'});
+                let json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+                let db = getDB(); let mappedCount = 0;
+                json.forEach(rawRow => {
+                    let row = normalizeRow(rawRow); let asin = extractASIN(row); let master = row["MASTER SKU"] || row["MASTERSKU"]; let pack = parseInt(row["PACK QTY"] || row["PACKQTY"] || 1);
+                    if (asin && master) {
+                        asin = asin.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_");
+                        master = master.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_");
+                        if (db.asins[asin]) { db.asins[asin].master = master; db.asins[asin].pack = isNaN(pack) ? 1 : pack; mappedCount++; if (db.masters[master] === undefined) db.masters[master] = 0; }
+                    }
+                });
+                await saveDB(db); document.getElementById('bulkMappingFile').value = ""; alert(`Successfully Mapped ${mappedCount} ASINs.`);
+            } catch (error) { alert("Error parsing Excel file."); }
+        }; reader.readAsArrayBuffer(file);
+    };
+
+    window.toggleAllASINs = function() { let isChecked = document.getElementById("selectAllASINs").checked; document.querySelectorAll(".asin-checkbox").forEach(cb => cb.checked = isChecked); };
+    window.deleteSelectedASINs = async function() {
+        let selectedBoxes = document.querySelectorAll(".asin-checkbox:checked"); if(selectedBoxes.length === 0) return;
+        if(!confirm(`Delete ${selectedBoxes.length} ASINs?`)) return;
+        let db = getDB(); selectedBoxes.forEach(cb => delete db.asins[cb.value]); await saveDB(db);
+    };
+    
+    window.saveSingleMapping = async function(asin) {
+        let master = document.getElementById(`map_master_${asin}`).value.trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_");
+        let pack = parseInt(document.getElementById(`map_pack_${asin}`).value);
+        let db = getDB(); db.asins[asin].master = master; db.asins[asin].pack = pack;
+        if(db.masters[master] === undefined) db.masters[master] = 0;
+        await saveDB(db);
+    };
+
+    // --- TAB 3: LIVE INVENTORY SYNC ---
+    window.processInventoryFile = function() {
+        let file = document.getElementById('amazonInventoryFile').files[0]; if(!file) return alert("Please select a file!");
+        let reader = new FileReader();
+        reader.onload = function(e) {
+            let data = new Uint8Array(e.target.result); let workbook = XLSX.read(data, {type: 'array'});
+            let json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+            let db = getDB(); let liveMasterStock = {}; 
+            json.forEach(rawRow => {
+                let row = normalizeRow(rawRow); let asin = extractASIN(row); let qty = extractQuantity(row);
+                if(asin && qty !== undefined) { asin = asin.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_"); let mapping = db.asins[asin]; if (mapping && mapping.master) { liveMasterStock[mapping.master] = (liveMasterStock[mapping.master] || 0) + (qty * mapping.pack); } }
+            });
+            let html = "";
+            for (let mSku in db.masters) { html += `<tr><td><strong>${mSku}</strong></td><td style="color:blue; font-weight:bold;">${liveMasterStock[mSku] || 0}</td><td>${db.masters[mSku]}</td></tr>`; }
+            let tbody = document.getElementById("inventoryTableBody"); if(tbody) tbody.innerHTML = html;
+        }; reader.readAsArrayBuffer(file);
+    };
+
+    // --- TAB 4: ORDER PROCESSING & REVERSE LOGIC (UPDATED FOR DUPLICATE CHECKING) ---
+    window.processOrderFile = function() {
+        let file = document.getElementById('dailyOrderFile').files[0]; if(!file) return alert("Select Business/Order file!");
+        let reader = new FileReader();
+        reader.onload = async function(e) {
+            let data = new Uint8Array(e.target.result); let workbook = XLSX.read(data, {type: 'array'});
+            let json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+            let db = getDB(); let deductedStock = {}; let totalDeductionsFound = 0; let skippedDuplicates = 0;
+            if (!db.processedOrders) db.processedOrders = {};
+            
+            json.forEach(rawRow => {
+                let row = normalizeRow(rawRow); 
+                let asin = extractASIN(row); 
+                // Checks for typical Amazon headers for quantity
+                let ordered = parseInt(row["QUANTITY"] || row["UNITS ORDERED"] || row["ORDERED"] || 0); 
+                let orderId = row["AMAZON-ORDER-ID"] || row["ORDER ID"] || row["ORDER-ID"];
+
+                if(asin && ordered > 0 && orderId) { 
+                    asin = asin.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_"); 
+                    let uniqueKey = `${orderId}_${asin}`.replace(/[.#$\[\]\/]/g, "_");
+
+                    // Check if this specific order line item was already processed
+                    if (db.processedOrders[uniqueKey]) {
+                        skippedDuplicates++;
+                        return; // Skip deduction
+                    }
+
+                    let mapping = db.asins[asin]; 
+                    if (mapping && mapping.master) { 
+                        deductedStock[mapping.master] = (deductedStock[mapping.master] || 0) + (ordered * mapping.pack); 
+                        totalDeductionsFound++; 
+                        db.processedOrders[uniqueKey] = true; // Mark as processed in Cloud
+                    } 
+                }
+            });
+
+            if (totalDeductionsFound === 0) {
+                if (skippedDuplicates > 0) return alert(`All ${skippedDuplicates} orders in this file were already processed. No duplicate deductions were made.`);
+                return alert("Warning: No mapped ASINs with new orders found in this file.");
+            }
+            
+            let html = "";
+            for (let mSku in deductedStock) {
+                let deduction = deductedStock[mSku] || 0; 
+                let opening = db.masters[mSku] || 0; 
+                let closing = opening - deduction;
+                
+                if(!db.sales[mSku]) db.sales[mSku] = []; 
+                db.sales[mSku].push(deduction); 
+                if(db.sales[mSku].length > 3) db.sales[mSku].shift(); 
+                
+                html += `<tr><td><strong>${mSku}</strong></td><td>${opening}</td><td style="color:red; font-weight:bold;">- ${deduction} (Deducted)</td><td style="color:green; font-weight:bold;">${closing}</td></tr>`; 
+                db.masters[mSku] = closing;
+            }
+            let tbody = document.getElementById("orderTableBody"); if(tbody) tbody.innerHTML = html;
+            await saveDB(db); 
+            alert(`Success! Processed ${totalDeductionsFound} new orders. Skipped ${skippedDuplicates} duplicates.`);
+        }; reader.readAsArrayBuffer(file);
+    };
+
+    // ⏪ REVERSE FUNCTION (UPDATED TO REMOVE FROM TRACKING)
+    window.reverseOrderFile = async function() {
+        let file = document.getElementById('dailyOrderFile').files[0]; 
+        if(!file) return alert("Please select the MISTAKE file you want to reverse!");
+        if(!confirm("Are you sure you want to REVERSE this file?\n\nThis will ADD the stock back and REMOVE the last sales record from your history.")) return;
+
+        let reader = new FileReader();
+        reader.onload = async function(e) {
+            let data = new Uint8Array(e.target.result); let workbook = XLSX.read(data, {type: 'array'});
+            let json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+            let db = getDB(); let revertedStock = {}; let totalRevertsFound = 0;
+            if (!db.processedOrders) db.processedOrders = {};
+            
+            json.forEach(rawRow => {
+                let row = normalizeRow(rawRow); 
+                let asin = extractASIN(row); 
+                let ordered = parseInt(row["QUANTITY"] || row["UNITS ORDERED"] || row["ORDERED"] || 0);
+                let orderId = row["AMAZON-ORDER-ID"] || row["ORDER ID"] || row["ORDER-ID"];
+
+                if(asin && ordered > 0 && orderId) { 
+                    asin = asin.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_"); 
+                    let uniqueKey = `${orderId}_${asin}`.replace(/[.#$\[\]\/]/g, "_");
+
+                    // Only reverse if we actually processed this order previously
+                    if (db.processedOrders[uniqueKey]) {
+                        let mapping = db.asins[asin]; 
+                        if (mapping && mapping.master) { 
+                            revertedStock[mapping.master] = (revertedStock[mapping.master] || 0) + (ordered * mapping.pack); 
+                            totalRevertsFound++; 
+                            delete db.processedOrders[uniqueKey]; // Clear tracking key so it can be uploaded again
+                        } 
+                    }
+                }
+            });
+
+            if (totalRevertsFound === 0) return alert("No valid orders found to reverse (they may have already been reversed or were never processed).");
+            
+            let html = "";
+            for (let mSku in revertedStock) {
+                let revertQty = revertedStock[mSku] || 0; 
+                let opening = db.masters[mSku] || 0; 
+                let closing = opening + revertQty; // Adding stock back!
+                
+                // Removing the last sales entry to fix the trend
+                if (db.sales[mSku] && db.sales[mSku].length > 0) {
+                    db.sales[mSku].pop();
+                }
+
+                html += `<tr><td><strong>${mSku}</strong></td><td>${opening}</td><td style="color:blue; font-weight:bold;">+ ${revertQty} (Reversed)</td><td style="color:green; font-weight:bold;">${closing}</td></tr>`; 
+                db.masters[mSku] = closing;
+            }
+            
+            let tbody = document.getElementById("orderTableBody"); if(tbody) tbody.innerHTML = html;
+            await saveDB(db); alert(`Success! Reversed ${totalRevertsFound} orders. Stock Added Back and Sales History Fixed.`);
+        }; reader.readAsArrayBuffer(file);
+    };
+
+    // --- TAB 5: SALES ALERTS ---
+    window.renderSalesAlertsTable = function() {
+        let db = getDB(); let html = "";
+        for (let sku in db.masters) {
+            let currentStock = db.masters[sku]; let history = db.sales[sku] || []; let sum = history.length > 0 ? history.reduce((a, b) => a + b, 0) : 0;
+            let dropHtml = "<span style='color:gray;'>Need 2 days</span>";
+            if (history.length >= 2) {
+                let today = history[history.length - 1]; let yesterday = history[history.length - 2]; 
+                if (yesterday === 0 && today > 0) dropHtml = `<span style="color: green; font-weight: bold;">⬆️ Started</span>`;
+                else if (yesterday === 0 && today === 0) dropHtml = `<span style="color: gray;">0%</span>`;
+                else { let pct = ((today - yesterday) / yesterday) * 100; dropHtml = pct < 0 ? `<span style="color: red; font-weight: bold;">⬇️ ${Math.abs(pct).toFixed(1)}%</span>` : pct > 0 ? `<span style="color: green; font-weight: bold;">⬆️ ${pct.toFixed(1)}%</span>` : `<span style="color: gray;">0% Change</span>`; }
+            }
+            let statusHtml = (currentStock < sum) ? `<span style="color: red; font-weight: bold;">🚨 Low Stock</span>` : `<span style="color: green; font-weight: bold;">✅ Healthy</span>`;
+            html += `<tr><td><strong>${sku}</strong></td><td>[ ${history.length > 0 ? history.join(", ") : "No Sales"} ]</td><td style="color:blue; font-weight:bold;">${sum} Units</td><td>${dropHtml}</td><td>${currentStock}</td><td>${statusHtml}</td></tr>`;
+        }
+        let tbody = document.getElementById("salesAlertsTableBody"); if(tbody) tbody.innerHTML = html;
+    };
+
+    // --- TAB 6: PRICING SYSTEM ---
+    window.processPricingReport = function() {
+        let file = document.getElementById('pricingReportFile').files[0];
+        if(!file) return alert("Upload Report First!");
+        
+        document.getElementById("sync-status").innerHTML = "⚙️ Processing SKUs...";
+        let reader = new FileReader();
+        reader.onload = async function(e) {
+            let data = new Uint8Array(e.target.result);
+            let workbook = XLSX.read(data, {type: 'array'});
+            let json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+            let db = getDB();
+            let count = 0;
+
+            json.forEach(rawRow => {
+                let row = normalizeRow(rawRow);
+                let sellerSku = extractSellerSKU(row);
+                let asin = extractASIN(row);
+                let filePrice = extractPrice(row); 
+
+                if (sellerSku && asin) {
+                    sellerSku = sellerSku.toString().trim().replace(/[.#$\[\]\/]/g, "_");
+                    asin = asin.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_");
+                    
+                    if (!db.pricingSKUs[sellerSku]) {
+                        db.pricingSKUs[sellerSku] = { asin: asin, amzFee: 0, delFee: 0, packFee: 0, currSell: filePrice, desSell: 0 };
+                        count++;
+                    } else {
+                        db.pricingSKUs[sellerSku].asin = asin;
+                        if (filePrice > 0) db.pricingSKUs[sellerSku].currSell = filePrice;
+                    }
+                }
+            });
+            await saveDB(db);
+            alert(`${count} Seller SKUs added/updated! Current Selling Prices fetched from file.`);
+        };
+        reader.readAsArrayBuffer(file);
+    };
+
+    window.renderPricingTable = function() {
+        let db = getDB(); let html = "";
+        for (let sSku in db.pricingSKUs) {
+            let pData = db.pricingSKUs[sSku]; let asin = pData.asin;
+            let masterSku = "Not Mapped"; let packQty = 1;
+            if (db.asins[asin] && db.asins[asin].master) { masterSku = db.asins[asin].master; packQty = db.asins[asin].pack || 1; }
+            let purchasePrice = db.purchasePrices[masterSku] || 0; let costPrice = purchasePrice * packQty;
+
+            html += `<tr>
+                <td><strong>${sSku}</strong></td>
+                <td>${asin}</td>
+                <td style="color:#666;">${masterSku} <br><small>(Pack: ${packQty})</small></td>
+                <td style="font-weight:bold;">₹<span id="cost_${sSku}">${costPrice.toFixed(2)}</span></td>
+                <td><input type="number" id="amz_${sSku}" class="price-input" value="${pData.amzFee}" oninput="window.calcRow('${sSku}')"></td>
+                <td><input type="number" id="del_${sSku}" class="price-input" value="${pData.delFee}" oninput="window.calcRow('${sSku}')"></td>
+                <td><input type="number" id="pack_${sSku}" class="price-input" value="${pData.packFee}" oninput="window.calcRow('${sSku}')"></td>
+                <td class="highlight-col"><span style="font-size:11px; color:#555;">Misc: ₹<span id="minMisc_${sSku}">0</span></span><br><strong>₹<span id="minSelling_${sSku}">0.00</span></strong></td>
+                <td><input type="number" id="currSell_${sSku}" class="price-input" value="${pData.currSell}" oninput="window.calcRow('${sSku}')"></td>
+                <td class="profit-col" id="currProfit_${sSku}">₹0 (0%)</td>
+                <td><input type="number" id="desSell_${sSku}" class="price-input" value="${pData.desSell}" oninput="window.calcRow('${sSku}')"></td>
+                <td class="profit-col" id="desProfit_${sSku}">₹0 (0%)</td>
+                <td><button class="btn btn-small" onclick="window.savePricingRow('${sSku}')">Save</button></td>
+            </tr>`;
+        }
+        let tbody = document.getElementById("pricingTableBody");
+        if(tbody) { tbody.innerHTML = html; for (let sSku in db.pricingSKUs) { window.calcRow(sSku); } }
+    };
+
+    window.calcRow = function(sSku) {
+        let cost = parseFloat(document.getElementById(`cost_${sSku}`).innerText) || 0;
+        let amz = parseFloat(document.getElementById(`amz_${sSku}`).value) || 0;
+        let del = parseFloat(document.getElementById(`del_${sSku}`).value) || 0;
+        let pack = parseFloat(document.getElementById(`pack_${sSku}`).value) || 0;
+
+        let base = cost + amz + del + pack; let minMisc = base * 0.05; let minSubtotal = base + minMisc; let minProfit = minSubtotal * 0.10; let minSelling = minSubtotal + minProfit;
+
+        document.getElementById(`minMisc_${sSku}`).innerText = minMisc.toFixed(2); document.getElementById(`minSelling_${sSku}`).innerText = minSelling.toFixed(2);
+
+        let currSell = parseFloat(document.getElementById(`currSell_${sSku}`).value) || 0; let currMisc = currSell * 0.05; let currExpenses = cost + amz + del + pack + currMisc;
+        let currProfit = currSell - currExpenses; let currProfitPct = currSell > 0 ? (currProfit / currSell) * 100 : 0;
+        let currDiv = document.getElementById(`currProfit_${sSku}`); currDiv.innerText = `₹${currProfit.toFixed(2)} (${currProfitPct.toFixed(1)}%)`; currDiv.style.color = currProfit > 0 ? "green" : "red";
+
+        let desSell = parseFloat(document.getElementById(`desSell_${sSku}`).value) || 0; let desMisc = desSell * 0.05; let desExpenses = cost + amz + del + pack + desMisc;
+        let desProfit = desSell - desExpenses; let desProfitPct = desSell > 0 ? (desProfit / desSell) * 100 : 0;
+        let desDiv = document.getElementById(`desProfit_${sSku}`); desDiv.innerText = `₹${desProfit.toFixed(2)} (${desProfitPct.toFixed(1)}%)`; desDiv.style.color = desProfit > 0 ? "green" : "red";
+    };
+
+    window.savePricingRow = async function(sSku) {
+        let db = getDB();
+        if(db.pricingSKUs[sSku]) {
+            db.pricingSKUs[sSku].amzFee = parseFloat(document.getElementById(`amz_${sSku}`).value) || 0;
+            db.pricingSKUs[sSku].delFee = parseFloat(document.getElementById(`del_${sSku}`).value) || 0;
+            db.pricingSKUs[sSku].packFee = parseFloat(document.getElementById(`pack_${sSku}`).value) || 0;
+            db.pricingSKUs[sSku].currSell = parseFloat(document.getElementById(`currSell_${sSku}`).value) || 0;
+            db.pricingSKUs[sSku].desSell = parseFloat(document.getElementById(`desSell_${sSku}`).value) || 0;
+            await saveDB(db);
+        }
+    };
+</script>
+
+</body>
+</html>
