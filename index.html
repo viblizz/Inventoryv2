@@ -329,15 +329,15 @@
     window.cloudDB = { masters: {}, asins: {}, sales: {}, purchasePrices: {}, pricingSKUs: {}, processedOrders: {}, locations: {}, ledger: {} };
     function getDB() { return JSON.parse(JSON.stringify(window.cloudDB)); }
 
-    // 2. FIREBASE SETUP WITH SAFETY NET
+    // 2. FIREBASE SETUP WITH RESTORED KEYS
     const firebaseConfig = {
-        apiKey: "",
-        authDomain: "",
-        databaseURL: "",
-        projectId: "",
-        storageBucket: "",
-        messagingSenderId: "",
-        appId: ""
+        apiKey: "AIzaSyC0wdeubQEyY9nrvT942lr-kiOLuHpMNjU",
+        authDomain: "inventory-app-c47eb.firebaseapp.com",
+        databaseURL: "https://inventory-app-c47eb-default-rtdb.firebaseio.com",
+        projectId: "inventory-app-c47eb",
+        storageBucket: "inventory-app-c47eb.firebasestorage.app",
+        messagingSenderId: "762528740250",
+        appId: "1:762528740250:web:9fe73a4281fe4f92854023"
     };
 
     try {
