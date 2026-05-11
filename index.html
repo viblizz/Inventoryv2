@@ -633,16 +633,44 @@
                 let data = new Uint8Array(e.target.result); let workbook = XLSX.read(data, {type: 'array'});
                 let json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
                 let db = getDB(); let mappedCount = 0;
+                
                 json.forEach(rawRow => {
-                    let row = normalizeRow(rawRow); let asin = extractASIN(row); let master = row["MASTER SKU"] || row["MASTERSKU"]; let pack = parseInt(row["PACK QTY"] || row["PACKQTY"] || 1);
+                    let row = normalizeRow(rawRow); 
+                    // Auto-detect columns from your CSV
+                    let asin = extractASIN(row) || row["ASIN"]; 
+                    let master = row["MASTER SKU"] || row["MASTERSKU"]; 
+                    let pack = parseInt(row["PACK QTY"] || row["PACKQTY"] || 1);
+                    let title = row["PRODUCT TITLE"] || row["TITLE"] || "Pre-filled Upload";
+                    let sellerSku = row["AMAZON SKU (REF)"] || row["SELLER SKU"] || "N/A";
+
                     if (asin && master) {
-                        asin = asin.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_"); master = master.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_");
-                        if (db.asins[asin]) { db.asins[asin].master = master; db.asins[asin].pack = isNaN(pack) ? 1 : pack; mappedCount++; 
-                            if (db.masters[master] === undefined) { db.masters[master] = 0; db.locations[master] = { rack: 0, wh: 0, new: 0 }; } 
+                        asin = asin.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_"); 
+                        master = master.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_");
+                        
+                        // 1. Force create the ASIN if it isn't in the cloud yet
+                        if (!db.asins[asin]) {
+                            db.asins[asin] = { master: "", pack: 1, title: title, sellerSku: sellerSku };
                         }
+                        
+                        // 2. Map the Master SKU and Pack Qty
+                        db.asins[asin].master = master; 
+                        db.asins[asin].pack = isNaN(pack) ? 1 : pack; 
+                        mappedCount++; 
+                        
+                        // 3. Force create the Master SKU in Tab 1 (with 0 stock to start)
+                        if (db.masters[master] === undefined) { 
+                            db.masters[master] = 0; 
+                            db.locations[master] = { rack: 0, wh: 0, new: 0 }; 
+                        } 
                     }
-                }); await saveDB(db); document.getElementById('bulkMappingFile').value = ""; alert(`Mapped ${mappedCount} ASINs.`);
-            } catch (error) { alert("Error parsing Excel file."); }
+                }); 
+                await saveDB(db); 
+                document.getElementById('bulkMappingFile').value = ""; 
+                alert(`Successfully uploaded and mapped ${mappedCount} ASINs! Master SKUs have been updated.`);
+            } catch (error) { 
+                console.error(error); 
+                alert("Error parsing file."); 
+            }
         }; reader.readAsArrayBuffer(file);
     };
 
