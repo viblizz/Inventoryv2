@@ -7,13 +7,13 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f6f9; margin: 0; padding: 20px; }
-        .container { max-width: 1400px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); position: relative; }
+        .container { max-width: 1450px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); position: relative; }
         
         #sync-status { position: absolute; top: 20px; right: 20px; font-size: 13px; font-weight: bold; background: #e8f5e9; color: #2e7d32; padding: 5px 12px; border-radius: 20px; border: 1px solid #c8e6c9; }
         h2 { text-align: center; color: #333; margin-bottom: 20px; margin-top: 10px; }
         
         .tab { overflow: hidden; border-bottom: 2px solid #ccc; background-color: #f1f1f1; border-radius: 5px 5px 0 0; display: flex; flex-wrap: wrap; }
-        .tab button { background-color: inherit; flex: 1; border: none; outline: none; cursor: pointer; padding: 14px 5px; transition: 0.3s; font-size: 14px; font-weight: bold; color: #555; }
+        .tab button { background-color: inherit; flex: 1; border: none; outline: none; cursor: pointer; padding: 12px 4px; transition: 0.3s; font-size: 13px; font-weight: bold; color: #555; }
         .tab button:hover { background-color: #ddd; color: #000; }
         .tab button.active { background-color: #007bff; color: white; }
         
@@ -22,7 +22,7 @@
         .bulk-box { background: #eef2f5; border: 1px solid #c8d6e5; border-left: 4px solid #007bff; }
         
         label { font-weight: bold; display: block; margin-bottom: 5px; color: #333; font-size: 14px; }
-        input[type="text"], input[type="file"], input[type="number"], select { width: 100%; padding: 10px; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        input[type="text"], input[type="file"], input[type="number"], input[type="date"], select { width: 100%; padding: 10px; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
         input.inline-input { width: auto; display: inline-block; margin-bottom: 0; padding: 6px; }
         input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; }
         
@@ -33,9 +33,10 @@
         .btn-warning { background-color: #ffc107; color: #000; }
         .btn-warning:hover { background-color: #e0a800; }
         .btn-info { background-color: #17a2b8; }
+        .btn-dark { background-color: #343a40; color: white; }
         
         .table-responsive { overflow-x: auto; }
-        table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 13px; min-width: 1200px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 13px; min-width: 1000px; }
         table, th, td { border: 1px solid #ddd; }
         th, td { padding: 8px; text-align: left; vertical-align: middle; }
         th { background-color: #007bff; color: white; position: sticky; top: 0; }
@@ -50,8 +51,6 @@
         .price-input { width: 70px !important; padding: 5px !important; margin-bottom: 0 !important; font-size: 13px; }
         .highlight-col { background-color: #f8f9fa; font-weight: bold; }
         .profit-col { font-weight: bold; }
-        
-        /* Flexbox for action buttons */
         .action-bar { display: flex; gap: 15px; align-items: center; flex-wrap: wrap; }
     </style>
 </head>
@@ -63,15 +62,26 @@
 
     <div class="tab">
         <button class="tablinks active" onclick="window.openTab(event, 'MasterStock')">1. Master Stock</button>
-        <button class="tablinks" onclick="window.openTab(event, 'ASINMapping')">2. ASIN Mapping</button>
-        <button class="tablinks" onclick="window.openTab(event, 'InventoryStatus')">3. Live Sync</button>
-        <button class="tablinks" onclick="window.openTab(event, 'OrderProcessing')">4. Daily Orders</button>
-        <button class="tablinks" onclick="window.openTab(event, 'SalesAlerts')">5. Sales Trends</button>
-        <button class="tablinks" onclick="window.openTab(event, 'PricingSystem')" style="background-color: #e3f2fd; color: #0277bd;">6. Pricing System</button>
+        <button class="tablinks" onclick="window.openTab(event, 'StockLocations')" style="background-color: #fff3cd;">2. Stock Locations</button>
+        <button class="tablinks" onclick="window.openTab(event, 'ASINMapping')">3. ASIN Mapping</button>
+        <button class="tablinks" onclick="window.openTab(event, 'InventoryStatus')">4. Live Sync</button>
+        <button class="tablinks" onclick="window.openTab(event, 'OrderProcessing')">5. Daily Orders</button>
+        <button class="tablinks" onclick="window.openTab(event, 'SalesAlerts')">6. Sales Trends</button>
+        <button class="tablinks" onclick="window.openTab(event, 'PricingSystem')" style="background-color: #e3f2fd; color: #0277bd;">7. Pricing System</button>
+        <button class="tablinks" onclick="window.openTab(event, 'OrderHistory')" style="background-color: #e8f5e9;">8. Order History</button>
     </div>
 
     <div id="MasterStock" class="tabcontent" style="display:block;">
         <h3>Update Physical Warehouse Stock</h3>
+        
+        <div class="section-box bulk-box action-bar" style="margin-bottom: 20px;">
+            <button class="btn btn-dark" onclick="window.downloadBackup()">💾 Download Full Database Backup (.json)</button>
+            <div style="border-left: 2px solid #ccc; height: 30px; margin: 0 10px;"></div>
+            <button class="btn btn-info" onclick="window.downloadMasterExcel()">⬇️ Download Master Excel</button>
+            <input type="file" id="masterUploadFile" accept=".xlsx, .csv" style="width: auto; margin-bottom: 0;">
+            <button class="btn btn-warning" onclick="window.uploadMasterExcel()">⬆️ Upload/Sync Master Excel</button>
+        </div>
+
         <div class="section-box">
             <div style="display: flex; gap: 15px;">
                 <div style="flex: 1;">
@@ -101,10 +111,11 @@
             
             <button class="btn" onclick="window.saveMasterStock()">Update Warehouse DB</button>
             <span id="stockSuccessMsg" style="color: #28a745; font-weight: bold; margin-left: 15px; display: none;">✔️ Stock Updated!</span>
+            <p style="font-size: 11px; color: gray;">*Note: Adjusting total stock here will automatically balance your 'Warehouse' bucket in the Locations tab.</p>
         </div>
         
         <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
-            <h4>Current Warehouse Stock</h4>
+            <h4>Current Total Warehouse Stock</h4>
             <select id="masterFilter" onchange="window.renderMasterStockTable()" style="width: 250px;">
                 <option value="all">Show All Master SKUs</option>
                 <option value="unmapped">Show Unmapped (0 ASINs Linked)</option>
@@ -113,8 +124,29 @@
 
         <div class="table-responsive">
             <table>
-                <thead><tr><th>Master SKU</th><th>Purchase Price (₹)</th><th>Linked ASINs</th><th>Current Stock</th><th>Action</th></tr></thead>
+                <thead><tr><th>Master SKU</th><th>Purchase Price (₹)</th><th>Linked ASINs</th><th>Total Master Stock</th><th>Action</th></tr></thead>
                 <tbody id="masterStockTableBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div id="StockLocations" class="tabcontent">
+        <h3>Detailed Stock Locations</h3>
+        <p style="color: #666; font-size: 13px;">Break down your Master Stock by location. Any changes here instantly update the Total Master Stock. If you alter the total Master Stock directly, the 'Warehouse' location acts as the auto-balancer.</p>
+        
+        <div class="table-responsive">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Master SKU</th>
+                        <th style="background-color:#fff3cd; color:#856404;">Rack Stock</th>
+                        <th style="background-color:#d4edda; color:#155724;">Warehouse Stock</th>
+                        <th style="background-color:#d1ecf1; color:#0c5460;">New Purchase Stock</th>
+                        <th style="background-color:#007bff; color:white;">Total Master Stock</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody id="locationsTableBody"></tbody>
             </table>
         </div>
     </div>
@@ -154,7 +186,7 @@
             <input type="file" id="amazonInventoryFile" accept=".txt, .csv, .xlsx">
             <button class="btn" onclick="window.processInventoryFile()">Calculate Live Inventory</button>
         </div>
-        <div class="table-responsive"><table><thead><tr><th>Master SKU</th><th>Live on Amazon (Pack Adjusted)</th><th>Available Warehouse Stock</th></tr></thead><tbody id="inventoryTableBody"></tbody></table></div>
+        <div class="table-responsive"><table><thead><tr><th>Master SKU</th><th>Live on Amazon (Pack Adjusted)</th><th>Total Warehouse Stock</th></tr></thead><tbody id="inventoryTableBody"></tbody></table></div>
     </div>
 
     <div id="OrderProcessing" class="tabcontent">
@@ -167,7 +199,7 @@
                 <button class="btn" onclick="window.processOrderFile()">Process Orders & Sync to Cloud</button>
                 <button class="btn btn-warning" onclick="window.reverseOrderFile()">⏪ Reverse This File (Undo Mistake)</button>
             </div>
-            <p style="font-size: 12px; color: #666; margin-top: 10px;">* If you uploaded the wrong file, select the exact same file again and click "Reverse This File" to add the stock back and fix your sales history.</p>
+            <p style="font-size: 12px; color: #666; margin-top: 10px;">* Processing an order file updates Master Stock, Sales Trends, AND records the ledger in Order History.</p>
         </div>
         
         <div class="table-responsive"><table><thead><tr><th>Master SKU</th><th>Opening Stock</th><th>Action Processed</th><th>Closing Stock</th></tr></thead><tbody id="orderTableBody"></tbody></table></div>
@@ -175,7 +207,25 @@
 
     <div id="SalesAlerts" class="tabcontent">
         <h3>3-Day Sales Tracking & Alerts</h3>
-        <div class="table-responsive"><table><thead><tr><th>Master SKU</th><th>Last 3 Days Sales</th><th>3-Day Sum (Req)</th><th>Sales Trend</th><th>Current Stock</th><th>Status</th></tr></thead><tbody id="salesAlertsTableBody"></tbody></table></div>
+        <p style="color: #666; font-size: 13px;">Shows daily breakdown, calculates your daily average, and sets the Target Stock required for the next 3 days based on that average.</p>
+        <div class="table-responsive">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Master SKU</th>
+                        <th>Day 1 (Oldest)</th>
+                        <th>Day 2</th>
+                        <th>Day 3 (Recent)</th>
+                        <th>Total 3 Days</th>
+                        <th style="background-color:#e2e3e5;">Daily Average</th>
+                        <th style="background-color:#d1ecf1; color:#0c5460;">Target Req (Next 3 Days)</th>
+                        <th>Current Total Stock</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="salesAlertsTableBody"></tbody>
+            </table>
+        </div>
     </div>
 
     <div id="PricingSystem" class="tabcontent">
@@ -212,58 +262,59 @@
         </div>
     </div>
 
+    <div id="OrderHistory" class="tabcontent">
+        <h3>Order History Ledger</h3>
+        <p style="color: #666; font-size: 13px;">A permanent record of all orders processed, categorized by Date and Master SKU.</p>
+        
+        <div class="section-box" style="display: flex; gap: 15px; align-items: flex-end; margin-bottom: 15px; background: #eef2f5;">
+            <div>
+                <label>Filter By Date:</label>
+                <select id="ledgerDateFilterType" onchange="window.toggleLedgerDateInputs()" style="margin-bottom: 0; width: 150px;">
+                    <option value="all">All Dates</option>
+                    <option value="exact">Exact Date</option>
+                    <option value="range">Date Range</option>
+                </select>
+            </div>
+            
+            <div id="ledgerExactDateDiv" style="display: none;">
+                <label>Select Date:</label>
+                <input type="date" id="ledgerExactDate" onchange="window.renderOrderHistoryTable()" style="margin-bottom: 0; width: 150px;">
+            </div>
+            
+            <div id="ledgerRangeDateDiv" style="display: none; gap: 15px;">
+                <div>
+                    <label>Start Date:</label>
+                    <input type="date" id="ledgerStartDate" onchange="window.renderOrderHistoryTable()" style="margin-bottom: 0; width: 150px;">
+                </div>
+                <div>
+                    <label>End Date:</label>
+                    <input type="date" id="ledgerEndDate" onchange="window.renderOrderHistoryTable()" style="margin-bottom: 0; width: 150px;">
+                </div>
+            </div>
+        </div>
+
+        <div class="table-responsive">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Processing Date</th>
+                        <th>Master SKU</th>
+                        <th>Total Individual Orders Received</th>
+                        <th>Total Qty Deducted (Pack Adjusted)</th>
+                    </tr>
+                </thead>
+                <tbody id="orderHistoryTableBody"></tbody>
+            </table>
+        </div>
+    </div>
+
 </div>
 
 <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-app.js";
     import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-database.js";
 
-    const firebaseConfig = {
-        apiKey: "AIzaSyC0wdeubQEyY9nrvT942lr-kiOLuHpMNjU",
-        authDomain: "inventory-app-c47eb.firebaseapp.com",
-        databaseURL: "https://inventory-app-c47eb-default-rtdb.firebaseio.com",
-        projectId: "inventory-app-c47eb",
-        storageBucket: "inventory-app-c47eb.firebasestorage.app",
-        messagingSenderId: "762528740250",
-        appId: "1:762528740250:web:9fe73a4281fe4f92854023"
-    };
-
-    const app = initializeApp(firebaseConfig);
-    const database = getDatabase(app);
-
-    // Updated to include processedOrders tracking duplicate prevention
-    window.cloudDB = { masters: {}, asins: {}, sales: {}, purchasePrices: {}, pricingSKUs: {}, processedOrders: {} };
-
-    onValue(ref(database, 'inventory'), (snapshot) => {
-        const data = snapshot.val() || { masters: {}, asins: {}, sales: {}, purchasePrices: {}, pricingSKUs: {}, processedOrders: {} };
-        window.cloudDB.masters = data.masters || {};
-        window.cloudDB.asins = data.asins || {};
-        window.cloudDB.sales = data.sales || {};
-        window.cloudDB.purchasePrices = data.purchasePrices || {};
-        window.cloudDB.pricingSKUs = data.pricingSKUs || {};
-        window.cloudDB.processedOrders = data.processedOrders || {};
-
-        document.getElementById("sync-status").innerHTML = "🟢 Live Sync Active";
-
-        window.renderMasterStockTable();
-        window.renderASINMappingTable();
-        window.renderSalesAlertsTable();
-        window.renderPricingTable(); 
-        window.updateSKUSuggestions(); 
-    });
-
-    function getDB() { return JSON.parse(JSON.stringify(window.cloudDB)); }
-    async function saveDB(newDbObj) {
-        document.getElementById("sync-status").innerHTML = "⏳ Saving...";
-        try {
-            await set(ref(database, 'inventory'), newDbObj);
-            document.getElementById("sync-status").innerHTML = "🟢 Live Sync Active";
-        } catch (error) { 
-            console.error(error);
-            alert("Firebase Data Error: Check for invalid characters like . # $ [ ] /"); 
-        }
-    }
-
+    // 1. UI SETUP
     window.openTab = function(evt, tabName) {
         document.querySelectorAll(".tabcontent").forEach(tab => tab.style.display = "none");
         document.querySelectorAll(".tablinks").forEach(link => link.classList.remove("active"));
@@ -271,20 +322,152 @@
         evt.currentTarget.classList.add("active");
     };
 
+    // Added locations and ledger to DB structure
+    window.cloudDB = { masters: {}, asins: {}, sales: {}, purchasePrices: {}, pricingSKUs: {}, processedOrders: {}, locations: {}, ledger: {} };
+    function getDB() { return JSON.parse(JSON.stringify(window.cloudDB)); }
+
+    // 2. FIREBASE SETUP WITH SAFETY NET
+    const firebaseConfig = {
+        apiKey: "",
+        authDomain: "",
+        databaseURL: "",
+        projectId: "",
+        storageBucket: "",
+        messagingSenderId: "",
+        appId: ""
+    };
+
+    try {
+        if(!firebaseConfig.apiKey) throw new Error("API Keys missing");
+        
+        const app = initializeApp(firebaseConfig);
+        const database = getDatabase(app);
+
+        onValue(ref(database, 'inventory'), (snapshot) => {
+            const data = snapshot.val() || {};
+            window.cloudDB.masters = data.masters || {};
+            window.cloudDB.asins = data.asins || {};
+            window.cloudDB.sales = data.sales || {};
+            window.cloudDB.purchasePrices = data.purchasePrices || {};
+            window.cloudDB.pricingSKUs = data.pricingSKUs || {};
+            window.cloudDB.processedOrders = data.processedOrders || {};
+            window.cloudDB.locations = data.locations || {};
+            window.cloudDB.ledger = data.ledger || {};
+
+            // Initialize missing locations for existing masters
+            for(let sku in window.cloudDB.masters) {
+                if(!window.cloudDB.locations[sku]) {
+                    window.cloudDB.locations[sku] = { rack: 0, wh: window.cloudDB.masters[sku], new: 0 };
+                }
+            }
+
+            document.getElementById("sync-status").innerHTML = "🟢 Live Sync Active";
+            window.renderAllTables();
+        });
+
+        window.saveDB = async function(newDbObj) {
+            document.getElementById("sync-status").innerHTML = "⏳ Saving...";
+            try {
+                await set(ref(database, 'inventory'), newDbObj);
+                document.getElementById("sync-status").innerHTML = "🟢 Live Sync Active";
+            } catch (error) { 
+                console.error(error); alert("Firebase Data Error."); 
+            }
+        };
+
+    } catch (error) {
+        let statusTag = document.getElementById("sync-status");
+        statusTag.innerHTML = "🔴 Offline Mode (No Keys)";
+        statusTag.style.backgroundColor = "#ffebee"; statusTag.style.color = "#c62828"; statusTag.style.border = "1px solid #ffcdd2";
+        
+        window.saveDB = async function(newDbObj) {
+            window.cloudDB = newDbObj; 
+            window.renderAllTables();
+        };
+    }
+
+    window.renderAllTables = function() {
+        window.renderMasterStockTable();
+        window.renderLocationsTable();
+        window.renderASINMappingTable();
+        window.renderSalesAlertsTable();
+        window.renderPricingTable(); 
+        window.renderOrderHistoryTable();
+        window.updateSKUSuggestions();
+    }
+
+    // UTILS
     function normalizeRow(row) { let newRow = {}; for (let key in row) { newRow[key.toString().trim().toUpperCase()] = row[key]; } return newRow; }
     function extractASIN(row) { return row["(CHILD) ASIN"] || row["CHILD ASIN"] || row["ASIN1"] || row["ASIN"] || null; }
     function extractQuantity(row) { return parseInt((row["QUANTITY"] !== undefined ? row["QUANTITY"] : row["QTY"]) || 0); }
     function extractOrders(row) { return parseInt((row["UNITS ORDERED"] !== undefined ? row["UNITS ORDERED"] : row["ORDERED"]) || 0); }
     function extractSellerSKU(row) { return row["SELLER-SKU"] || row["SKU"] || row["MERCHANT SKU"] || null; }
     function extractPrice(row) { return parseFloat(row["PRICE"] || row["YOUR PRICE"] || 0); }
+    function extractOrderID(row) { return row["AMAZON-ORDER-ID"] || row["ORDER ID"] || row["ORDER-ID"] || row["ORDERID"] || null; }
 
-    // --- TAB 1: MASTER STOCK & PURCHASE PRICE ---
+    // --- TAB 1: MASTER STOCK & BACKUPS ---
+    window.downloadBackup = function() {
+        let db = getDB();
+        let dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(db, null, 2));
+        let dlAnchorElem = document.createElement('a');
+        dlAnchorElem.setAttribute("href", dataStr);
+        dlAnchorElem.setAttribute("download", "Viblizz_Database_Backup_" + new Date().toISOString().split('T')[0] + ".json");
+        dlAnchorElem.click();
+    };
+
+    window.downloadMasterExcel = function() {
+        let db = getDB(); let dataToExport = [];
+        for (let sku in db.masters) {
+            dataToExport.push({
+                "Master SKU": sku,
+                "Purchase Price": db.purchasePrices[sku] || 0,
+                "Total Stock": db.masters[sku],
+                "Rack Stock": db.locations[sku]?.rack || 0,
+                "Warehouse Stock": db.locations[sku]?.wh || 0,
+                "New Purchase": db.locations[sku]?.new || 0
+            });
+        }
+        if (dataToExport.length === 0) return alert("No Master SKUs exist yet!");
+        let worksheet = XLSX.utils.json_to_sheet(dataToExport);
+        let workbook = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(workbook, worksheet, "Master_Stock");
+        XLSX.writeFile(workbook, "Viblizz_Master_Stock_" + new Date().toISOString().split('T')[0] + ".xlsx");
+    };
+
+    window.uploadMasterExcel = function() {
+        let file = document.getElementById('masterUploadFile').files[0];
+        if (!file) return alert("Select an Excel file first!");
+        let reader = new FileReader();
+        reader.onload = async function(e) {
+            let data = new Uint8Array(e.target.result); let workbook = XLSX.read(data, {type: 'array'});
+            let json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+            let db = getDB(); let count = 0;
+            json.forEach(rawRow => {
+                let row = normalizeRow(rawRow);
+                let sku = row["MASTER SKU"] || row["MASTERSKU"];
+                let price = parseFloat(row["PURCHASE PRICE"] || row["PRICE"] || 0);
+                let totalStock = parseInt(row["TOTAL STOCK"] || row["STOCK"] || 0);
+                
+                let rack = parseInt(row["RACK STOCK"] || row["RACK"] || 0);
+                let wh = parseInt(row["WAREHOUSE STOCK"] || row["WAREHOUSE"] || totalStock); // Fallback to total if breakdown missing
+                let newPurch = parseInt(row["NEW PURCHASE"] || row["NEW"] || 0);
+
+                if (sku) {
+                    sku = sku.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_");
+                    db.masters[sku] = rack + wh + newPurch; // Auto calculate true total
+                    db.purchasePrices[sku] = isNaN(price) ? 0 : price;
+                    db.locations[sku] = { rack: isNaN(rack)?0:rack, wh: isNaN(wh)?0:wh, new: isNaN(newPurch)?0:newPurch };
+                    count++;
+                }
+            });
+            await saveDB(db); document.getElementById('masterUploadFile').value = ""; alert(`${count} Master SKUs Updated via Excel!`);
+        }; reader.readAsArrayBuffer(file);
+    };
+
     window.updateSKUSuggestions = function() {
         let db = getDB(); let html = "";
         for (let sku in db.masters) html += `<option value="${sku}">`;
         let dl = document.getElementById("skuSuggestions"); if(dl) dl.innerHTML = html;
     };
-
     window.autoFillPurchasePrice = function() {
         let sku = document.getElementById("masterSkuInput").value.trim().toUpperCase();
         let db = getDB();
@@ -297,29 +480,31 @@
         let purchasePrice = parseFloat(document.getElementById("purchasePriceInput").value.trim());
         let action = document.getElementById("stockAction").value;
 
-        if (!sku || isNaN(stockInput) || isNaN(purchasePrice)) return alert("Please enter valid SKU, Stock, and Purchase Price.");
+        if (!sku || isNaN(stockInput) || isNaN(purchasePrice)) return alert("Please enter valid SKU, Stock, and Price.");
         
         let db = getDB();
-        if (action === "add") { let currentStock = db.masters[sku] || 0; db.masters[sku] = currentStock + stockInput; } 
-        else { db.masters[sku] = stockInput; }
+        if(!db.locations[sku]) db.locations[sku] = { rack: 0, wh: 0, new: 0 };
+        
+        if (action === "add") { 
+            db.masters[sku] = (db.masters[sku] || 0) + stockInput; 
+            db.locations[sku].wh += stockInput; // Dumps additions into WH bucket
+        } else { 
+            let diff = stockInput - (db.masters[sku] || 0);
+            db.masters[sku] = stockInput; 
+            db.locations[sku].wh += diff; // Balances using WH bucket
+        }
         
         db.purchasePrices[sku] = purchasePrice;
         await saveDB(db);
 
-        document.getElementById("masterSkuInput").value = "";
-        document.getElementById("masterStockInput").value = "";
-        document.getElementById("purchasePriceInput").value = "";
-
-        let msgElement = document.getElementById("stockSuccessMsg");
-        msgElement.style.display = "inline-block"; msgElement.classList.remove("fade-out");
-        void msgElement.offsetWidth; msgElement.classList.add("fade-out");
+        document.getElementById("masterSkuInput").value = ""; document.getElementById("masterStockInput").value = ""; document.getElementById("purchasePriceInput").value = "";
+        let msg = document.getElementById("stockSuccessMsg"); msg.style.display = "inline-block"; msg.classList.remove("fade-out"); void msg.offsetWidth; msg.classList.add("fade-out");
     };
 
     window.renderMasterStockTable = function() {
         let db = getDB(); let html = "";
         let filterSelect = document.getElementById("masterFilter");
         let filterValue = filterSelect ? filterSelect.value : "all";
-        
         let linkedCounts = {};
         for (let sku in db.masters) linkedCounts[sku] = 0;
         for (let asin in db.asins) { let mSku = db.asins[asin].master; if (mSku && db.masters[mSku] !== undefined) linkedCounts[mSku] = (linkedCounts[mSku] || 0) + 1; }
@@ -327,14 +512,10 @@
         for (let sku in db.masters) {
             let count = linkedCounts[sku] || 0;
             if (filterValue === "unmapped" && count > 0) continue;
-            let badgeHtml = count > 0 ? `<span class="badge-green">${count} Linked</span>` : `<span class="badge-red">0 Linked</span>`;
-            let pPrice = db.purchasePrices[sku] || 0;
-
             html += `<tr>
-                <td><strong>${sku}</strong></td>
-                <td>₹${pPrice}</td>
-                <td>${badgeHtml}</td>
-                <td>${db.masters[sku]}</td>
+                <td><strong>${sku}</strong></td><td>₹${db.purchasePrices[sku] || 0}</td>
+                <td>${count > 0 ? `<span class="badge-green">${count} Linked</span>` : `<span class="badge-red">0 Linked</span>`}</td>
+                <td style="font-size: 15px; font-weight: bold;">${db.masters[sku]}</td>
                 <td style="white-space: nowrap;">
                     <button class="btn btn-small btn-info" onclick="window.editPurchasePrice('${sku}')">💲 Price</button>
                     <button class="btn btn-small btn-warning" onclick="window.renameMaster('${sku}')">✏️ Rename</button>
@@ -347,7 +528,7 @@
 
     window.editPurchasePrice = async function(sku) {
         let db = getDB(); let oldPrice = db.purchasePrices[sku] || 0;
-        let newPrice = prompt(`Update Purchase Price for ${sku} (₹):\n\nCurrent: ₹${oldPrice}`, oldPrice);
+        let newPrice = prompt(`Update Price for ${sku} (₹):\nCurrent: ₹${oldPrice}`, oldPrice);
         if(newPrice !== null && !isNaN(newPrice) && newPrice.trim() !== "") { db.purchasePrices[sku] = parseFloat(newPrice); await saveDB(db); }
     };
 
@@ -356,24 +537,57 @@
         if (!newSku || newSku.trim() === "" || newSku.trim().toUpperCase() === oldSku) return;
         newSku = newSku.trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_"); 
         let db = getDB();
-        if (db.masters[newSku] !== undefined) return alert("SKU already exists.");
+        if (db.masters[newSku] !== undefined) return alert("SKU exists.");
 
         db.masters[newSku] = db.masters[oldSku]; delete db.masters[oldSku];
         if (db.sales[oldSku]) { db.sales[newSku] = db.sales[oldSku]; delete db.sales[oldSku]; }
         if (db.purchasePrices[oldSku]) { db.purchasePrices[newSku] = db.purchasePrices[oldSku]; delete db.purchasePrices[oldSku]; }
+        if (db.locations[oldSku]) { db.locations[newSku] = db.locations[oldSku]; delete db.locations[oldSku]; }
         for (let asin in db.asins) { if (db.asins[asin].master === oldSku) db.asins[asin].master = newSku; }
+        
+        // Also migrate ledger history (optional but good practice)
+        for(let date in db.ledger) { if(db.ledger[date][oldSku]) { db.ledger[date][newSku] = db.ledger[date][oldSku]; delete db.ledger[date][oldSku]; } }
+        
         await saveDB(db);
     };
 
     window.deleteMaster = async function(sku) {
         if(!confirm(`Delete Master SKU: ${sku}?`)) return;
-        let db = getDB(); delete db.masters[sku]; delete db.sales[sku]; delete db.purchasePrices[sku];
+        let db = getDB(); delete db.masters[sku]; delete db.sales[sku]; delete db.purchasePrices[sku]; delete db.locations[sku];
         await saveDB(db);
     };
 
-    // --- TAB 2: ASIN MAPPING ---
+    // --- TAB 2: STOCK LOCATIONS (NEW) ---
+    window.renderLocationsTable = function() {
+        let db = getDB(); let html = "";
+        for (let sku in db.masters) {
+            let locs = db.locations[sku] || { rack: 0, wh: db.masters[sku], new: 0 };
+            html += `<tr>
+                <td><strong>${sku}</strong></td>
+                <td><input type="number" id="loc_rack_${sku}" class="price-input" value="${locs.rack}"></td>
+                <td><input type="number" id="loc_wh_${sku}" class="price-input" value="${locs.wh}"></td>
+                <td><input type="number" id="loc_new_${sku}" class="price-input" value="${locs.new}"></td>
+                <td style="font-weight:bold; font-size:14px;">${db.masters[sku]}</td>
+                <td><button class="btn btn-small" onclick="window.saveLocations('${sku}')">Save Breakup</button></td>
+            </tr>`;
+        }
+        let tbody = document.getElementById("locationsTableBody"); if(tbody) tbody.innerHTML = html;
+    };
+
+    window.saveLocations = async function(sku) {
+        let db = getDB();
+        let r = parseInt(document.getElementById(`loc_rack_${sku}`).value) || 0;
+        let w = parseInt(document.getElementById(`loc_wh_${sku}`).value) || 0;
+        let n = parseInt(document.getElementById(`loc_new_${sku}`).value) || 0;
+        
+        db.locations[sku] = { rack: r, wh: w, new: n };
+        db.masters[sku] = r + w + n; // Hard sync to Master
+        await saveDB(db);
+    };
+
+    // --- TAB 3: ASIN MAPPING ---
     window.processListingsReport = function() {
-        let file = document.getElementById('listingsReportFile').files[0]; if(!file) return alert("Please select a file!");
+        let file = document.getElementById('listingsReportFile').files[0]; if(!file) return alert("Select a file!");
         let reader = new FileReader();
         reader.onload = async function(e) {
             let data = new Uint8Array(e.target.result); let workbook = XLSX.read(data, {type: 'array'});
@@ -385,8 +599,7 @@
                     if(!db.asins[asin]) { db.asins[asin] = {master: "", pack: 1, title: title, sellerSku: sSku}; count++; }
                     else { if(db.asins[asin].title==="No Title") db.asins[asin].title=title; if(!db.asins[asin].sellerSku) db.asins[asin].sellerSku=sSku; }
                 }
-            });
-            await saveDB(db); alert(`${count} ASINs Loaded`);
+            }); await saveDB(db); alert(`${count} ASINs Loaded`);
         }; reader.readAsArrayBuffer(file);
     };
 
@@ -414,7 +627,6 @@
 
     window.uploadBulkMapping = function() {
         let file = document.getElementById('bulkMappingFile').files[0]; if (!file) return alert("Select filled template!");
-        document.getElementById("sync-status").innerHTML = "⚙️ Processing File...";
         let reader = new FileReader();
         reader.onload = async function(e) {
             try {
@@ -424,12 +636,12 @@
                 json.forEach(rawRow => {
                     let row = normalizeRow(rawRow); let asin = extractASIN(row); let master = row["MASTER SKU"] || row["MASTERSKU"]; let pack = parseInt(row["PACK QTY"] || row["PACKQTY"] || 1);
                     if (asin && master) {
-                        asin = asin.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_");
-                        master = master.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_");
-                        if (db.asins[asin]) { db.asins[asin].master = master; db.asins[asin].pack = isNaN(pack) ? 1 : pack; mappedCount++; if (db.masters[master] === undefined) db.masters[master] = 0; }
+                        asin = asin.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_"); master = master.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_");
+                        if (db.asins[asin]) { db.asins[asin].master = master; db.asins[asin].pack = isNaN(pack) ? 1 : pack; mappedCount++; 
+                            if (db.masters[master] === undefined) { db.masters[master] = 0; db.locations[master] = { rack: 0, wh: 0, new: 0 }; } 
+                        }
                     }
-                });
-                await saveDB(db); document.getElementById('bulkMappingFile').value = ""; alert(`Successfully Mapped ${mappedCount} ASINs.`);
+                }); await saveDB(db); document.getElementById('bulkMappingFile').value = ""; alert(`Mapped ${mappedCount} ASINs.`);
             } catch (error) { alert("Error parsing Excel file."); }
         }; reader.readAsArrayBuffer(file);
     };
@@ -445,13 +657,13 @@
         let master = document.getElementById(`map_master_${asin}`).value.trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_");
         let pack = parseInt(document.getElementById(`map_pack_${asin}`).value);
         let db = getDB(); db.asins[asin].master = master; db.asins[asin].pack = pack;
-        if(db.masters[master] === undefined) db.masters[master] = 0;
+        if(db.masters[master] === undefined) { db.masters[master] = 0; db.locations[master] = { rack: 0, wh: 0, new: 0 }; }
         await saveDB(db);
     };
 
-    // --- TAB 3: LIVE INVENTORY SYNC ---
+    // --- TAB 4: INVENTORY STATUS ---
     window.processInventoryFile = function() {
-        let file = document.getElementById('amazonInventoryFile').files[0]; if(!file) return alert("Please select a file!");
+        let file = document.getElementById('amazonInventoryFile').files[0]; if(!file) return alert("Select file!");
         let reader = new FileReader();
         reader.onload = function(e) {
             let data = new Uint8Array(e.target.result); let workbook = XLSX.read(data, {type: 'array'});
@@ -467,178 +679,155 @@
         }; reader.readAsArrayBuffer(file);
     };
 
-    // --- TAB 4: ORDER PROCESSING & REVERSE LOGIC (UPDATED FOR DUPLICATE CHECKING) ---
+    // --- TAB 5: DAILY ORDERS & LEDGER UPDATE ---
     window.processOrderFile = function() {
         let file = document.getElementById('dailyOrderFile').files[0]; if(!file) return alert("Select Business/Order file!");
         let reader = new FileReader();
         reader.onload = async function(e) {
             let data = new Uint8Array(e.target.result); let workbook = XLSX.read(data, {type: 'array'});
             let json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
-            let db = getDB(); let deductedStock = {}; let totalDeductionsFound = 0; let skippedDuplicates = 0;
-            if (!db.processedOrders) db.processedOrders = {};
+            let db = getDB(); 
+            let deductedStock = {}; let totalDeductionsFound = 0;
+            let processedOrders = db.processedOrders || {}; 
             
+            let todayDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+            if(!db.ledger) db.ledger = {};
+            if(!db.ledger[todayDate]) db.ledger[todayDate] = {};
+
             json.forEach(rawRow => {
-                let row = normalizeRow(rawRow); 
-                let asin = extractASIN(row); 
-                // Checks for typical Amazon headers for quantity
-                let ordered = parseInt(row["QUANTITY"] || row["UNITS ORDERED"] || row["ORDERED"] || 0); 
-                let orderId = row["AMAZON-ORDER-ID"] || row["ORDER ID"] || row["ORDER-ID"];
-
-                if(asin && ordered > 0 && orderId) { 
+                let row = normalizeRow(rawRow); let asin = extractASIN(row); let ordered = extractOrders(row); let orderId = extractOrderID(row); 
+                if(asin && ordered > 0) { 
                     asin = asin.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_"); 
-                    let uniqueKey = `${orderId}_${asin}`.replace(/[.#$\[\]\/]/g, "_");
+                    let uniqueKey = orderId ? `${orderId}_${asin}` : `NO_ID_${Date.now()}_${Math.random()}`;
 
-                    // Check if this specific order line item was already processed
-                    if (db.processedOrders[uniqueKey]) {
-                        skippedDuplicates++;
-                        return; // Skip deduction
-                    }
-
-                    let mapping = db.asins[asin]; 
-                    if (mapping && mapping.master) { 
-                        deductedStock[mapping.master] = (deductedStock[mapping.master] || 0) + (ordered * mapping.pack); 
-                        totalDeductionsFound++; 
-                        db.processedOrders[uniqueKey] = true; // Mark as processed in Cloud
-                    } 
-                }
-            });
-
-            if (totalDeductionsFound === 0) {
-                if (skippedDuplicates > 0) return alert(`All ${skippedDuplicates} orders in this file were already processed. No duplicate deductions were made.`);
-                return alert("Warning: No mapped ASINs with new orders found in this file.");
-            }
-            
-            let html = "";
-            for (let mSku in deductedStock) {
-                let deduction = deductedStock[mSku] || 0; 
-                let opening = db.masters[mSku] || 0; 
-                let closing = opening - deduction;
-                
-                if(!db.sales[mSku]) db.sales[mSku] = []; 
-                db.sales[mSku].push(deduction); 
-                if(db.sales[mSku].length > 3) db.sales[mSku].shift(); 
-                
-                html += `<tr><td><strong>${mSku}</strong></td><td>${opening}</td><td style="color:red; font-weight:bold;">- ${deduction} (Deducted)</td><td style="color:green; font-weight:bold;">${closing}</td></tr>`; 
-                db.masters[mSku] = closing;
-            }
-            let tbody = document.getElementById("orderTableBody"); if(tbody) tbody.innerHTML = html;
-            await saveDB(db); 
-            alert(`Success! Processed ${totalDeductionsFound} new orders. Skipped ${skippedDuplicates} duplicates.`);
-        }; reader.readAsArrayBuffer(file);
-    };
-
-    // ⏪ REVERSE FUNCTION (UPDATED TO REMOVE FROM TRACKING)
-    window.reverseOrderFile = async function() {
-        let file = document.getElementById('dailyOrderFile').files[0]; 
-        if(!file) return alert("Please select the MISTAKE file you want to reverse!");
-        if(!confirm("Are you sure you want to REVERSE this file?\n\nThis will ADD the stock back and REMOVE the last sales record from your history.")) return;
-
-        let reader = new FileReader();
-        reader.onload = async function(e) {
-            let data = new Uint8Array(e.target.result); let workbook = XLSX.read(data, {type: 'array'});
-            let json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
-            let db = getDB(); let revertedStock = {}; let totalRevertsFound = 0;
-            if (!db.processedOrders) db.processedOrders = {};
-            
-            json.forEach(rawRow => {
-                let row = normalizeRow(rawRow); 
-                let asin = extractASIN(row); 
-                let ordered = parseInt(row["QUANTITY"] || row["UNITS ORDERED"] || row["ORDERED"] || 0);
-                let orderId = row["AMAZON-ORDER-ID"] || row["ORDER ID"] || row["ORDER-ID"];
-
-                if(asin && ordered > 0 && orderId) { 
-                    asin = asin.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_"); 
-                    let uniqueKey = `${orderId}_${asin}`.replace(/[.#$\[\]\/]/g, "_");
-
-                    // Only reverse if we actually processed this order previously
-                    if (db.processedOrders[uniqueKey]) {
+                    if (!processedOrders[uniqueKey]) {
+                        processedOrders[uniqueKey] = true; 
                         let mapping = db.asins[asin]; 
                         if (mapping && mapping.master) { 
-                            revertedStock[mapping.master] = (revertedStock[mapping.master] || 0) + (ordered * mapping.pack); 
-                            totalRevertsFound++; 
-                            delete db.processedOrders[uniqueKey]; // Clear tracking key so it can be uploaded again
+                            let totalQtyDeducted = (ordered * mapping.pack);
+                            deductedStock[mapping.master] = (deductedStock[mapping.master] || 0) + totalQtyDeducted; 
+                            totalDeductionsFound++; 
+                            
+                            // Log to Ledger
+                            if(!db.ledger[todayDate][mapping.master]) db.ledger[todayDate][mapping.master] = { orders: 0, qty: 0 };
+                            db.ledger[todayDate][mapping.master].orders += 1;
+                            db.ledger[todayDate][mapping.master].qty += totalQtyDeducted;
                         } 
                     }
                 }
             });
-
-            if (totalRevertsFound === 0) return alert("No valid orders found to reverse (they may have already been reversed or were never processed).");
+            if (totalDeductionsFound === 0) return alert("Notice: No new valid orders found.");
             
             let html = "";
-            for (let mSku in revertedStock) {
-                let revertQty = revertedStock[mSku] || 0; 
-                let opening = db.masters[mSku] || 0; 
-                let closing = opening + revertQty; // Adding stock back!
-                
-                // Removing the last sales entry to fix the trend
-                if (db.sales[mSku] && db.sales[mSku].length > 0) {
-                    db.sales[mSku].pop();
+            for (let mSku in db.masters) {
+                let deduction = deductedStock[mSku] || 0; let opening = db.masters[mSku]; let closing = opening - deduction;
+                if(deduction > 0) {
+                    if(!db.sales[mSku]) db.sales[mSku] = []; db.sales[mSku].push(deduction); if(db.sales[mSku].length > 3) db.sales[mSku].shift(); 
+                    html += `<tr><td><strong>${mSku}</strong></td><td>${opening}</td><td style="color:red; font-weight:bold;">- ${deduction}</td><td style="color:green; font-weight:bold;">${closing}</td></tr>`; 
+                    db.masters[mSku] = closing;
+                    if(db.locations[mSku]) db.locations[mSku].wh -= deduction; // Subtract from WH bucket logically
                 }
-
-                html += `<tr><td><strong>${mSku}</strong></td><td>${opening}</td><td style="color:blue; font-weight:bold;">+ ${revertQty} (Reversed)</td><td style="color:green; font-weight:bold;">${closing}</td></tr>`; 
-                db.masters[mSku] = closing;
             }
-            
+            db.processedOrders = processedOrders; 
             let tbody = document.getElementById("orderTableBody"); if(tbody) tbody.innerHTML = html;
-            await saveDB(db); alert(`Success! Reversed ${totalRevertsFound} orders. Stock Added Back and Sales History Fixed.`);
+            await saveDB(db); alert("Orders Deducted, Ledger Updated & Synced to Cloud!");
         }; reader.readAsArrayBuffer(file);
     };
 
-    // --- TAB 5: SALES ALERTS ---
+    window.reverseOrderFile = async function() {
+        let file = document.getElementById('dailyOrderFile').files[0]; if(!file) return alert("Select the MISTAKE file!");
+        if(!confirm("Are you sure you want to REVERSE this file?")) return;
+        let reader = new FileReader();
+        reader.onload = async function(e) {
+            let data = new Uint8Array(e.target.result); let workbook = XLSX.read(data, {type: 'array'});
+            let json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+            let db = getDB(); let revertedStock = {}; let totalRevertsFound = 0; let processedOrders = db.processedOrders || {};
+            
+            let todayDate = new Date().toISOString().split('T')[0];
+            
+            json.forEach(rawRow => {
+                let row = normalizeRow(rawRow); let asin = extractASIN(row); let ordered = extractOrders(row); let orderId = extractOrderID(row);
+                if(asin && ordered > 0) { 
+                    asin = asin.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_"); 
+                    let uniqueKey = orderId ? `${orderId}_${asin}` : null;
+                    if (!uniqueKey || processedOrders[uniqueKey]) {
+                        if (uniqueKey) delete processedOrders[uniqueKey]; 
+                        let mapping = db.asins[asin]; 
+                        if (mapping && mapping.master) { 
+                            let totalQtyDeducted = (ordered * mapping.pack);
+                            revertedStock[mapping.master] = (revertedStock[mapping.master] || 0) + totalQtyDeducted; 
+                            totalRevertsFound++; 
+                            
+                            // Revert Ledger
+                            if(db.ledger && db.ledger[todayDate] && db.ledger[todayDate][mapping.master]) {
+                                db.ledger[todayDate][mapping.master].orders = Math.max(0, db.ledger[todayDate][mapping.master].orders - 1);
+                                db.ledger[todayDate][mapping.master].qty = Math.max(0, db.ledger[todayDate][mapping.master].qty - totalQtyDeducted);
+                            }
+                        } 
+                    }
+                }
+            });
+            if (totalRevertsFound === 0) return alert("No mapped ASINs found to reverse.");
+            
+            let html = "";
+            for (let mSku in revertedStock) {
+                let revertQty = revertedStock[mSku] || 0; let opening = db.masters[mSku]; let closing = opening + revertQty; 
+                if (db.sales[mSku] && db.sales[mSku].length > 0) db.sales[mSku].pop();
+                html += `<tr><td><strong>${mSku}</strong></td><td>${opening}</td><td style="color:blue; font-weight:bold;">+ ${revertQty}</td><td style="color:green; font-weight:bold;">${closing}</td></tr>`; 
+                db.masters[mSku] = closing;
+                if(db.locations[mSku]) db.locations[mSku].wh += revertQty;
+            }
+            db.processedOrders = processedOrders; 
+            let tbody = document.getElementById("orderTableBody"); if(tbody) tbody.innerHTML = html;
+            await saveDB(db); alert("Reversed Successfully.");
+        }; reader.readAsArrayBuffer(file);
+    };
+
+    // --- TAB 6: SALES ALERTS (UPDATED EXPLICIT MATH) ---
     window.renderSalesAlertsTable = function() {
         let db = getDB(); let html = "";
         for (let sku in db.masters) {
-            let currentStock = db.masters[sku]; let history = db.sales[sku] || []; let sum = history.length > 0 ? history.reduce((a, b) => a + b, 0) : 0;
-            let dropHtml = "<span style='color:gray;'>Need 2 days</span>";
-            if (history.length >= 2) {
-                let today = history[history.length - 1]; let yesterday = history[history.length - 2]; 
-                if (yesterday === 0 && today > 0) dropHtml = `<span style="color: green; font-weight: bold;">⬆️ Started</span>`;
-                else if (yesterday === 0 && today === 0) dropHtml = `<span style="color: gray;">0%</span>`;
-                else { let pct = ((today - yesterday) / yesterday) * 100; dropHtml = pct < 0 ? `<span style="color: red; font-weight: bold;">⬇️ ${Math.abs(pct).toFixed(1)}%</span>` : pct > 0 ? `<span style="color: green; font-weight: bold;">⬆️ ${pct.toFixed(1)}%</span>` : `<span style="color: gray;">0% Change</span>`; }
-            }
-            let statusHtml = (currentStock < sum) ? `<span style="color: red; font-weight: bold;">🚨 Low Stock</span>` : `<span style="color: green; font-weight: bold;">✅ Healthy</span>`;
-            html += `<tr><td><strong>${sku}</strong></td><td>[ ${history.length > 0 ? history.join(", ") : "No Sales"} ]</td><td style="color:blue; font-weight:bold;">${sum} Units</td><td>${dropHtml}</td><td>${currentStock}</td><td>${statusHtml}</td></tr>`;
+            let currentStock = db.masters[sku]; let history = db.sales[sku] || []; 
+            let day1 = history.length > 0 ? history[0] : 0;
+            let day2 = history.length > 1 ? history[1] : 0;
+            let day3 = history.length > 2 ? history[2] : 0;
+            
+            let sum = day1 + day2 + day3;
+            let avg = history.length > 0 ? (sum / history.length).toFixed(1) : 0;
+            let targetReq = (avg * 3).toFixed(0); // Req for next 3 days
+            
+            let statusHtml = (currentStock < targetReq) ? `<span style="color: red; font-weight: bold;">🚨 Need to Restock</span>` : `<span style="color: green; font-weight: bold;">✅ Healthy</span>`;
+            
+            html += `<tr>
+                <td><strong>${sku}</strong></td>
+                <td>${day1}</td><td>${day2}</td><td>${day3}</td>
+                <td style="color:blue; font-weight:bold;">${sum}</td>
+                <td style="background-color:#e2e3e5; font-weight:bold;">${avg} / day</td>
+                <td style="background-color:#d1ecf1; font-weight:bold; color:#0c5460;">${targetReq}</td>
+                <td style="font-size:14px; font-weight:bold;">${currentStock}</td>
+                <td>${statusHtml}</td>
+            </tr>`;
         }
         let tbody = document.getElementById("salesAlertsTableBody"); if(tbody) tbody.innerHTML = html;
     };
 
-    // --- TAB 6: PRICING SYSTEM ---
+    // --- TAB 7: PRICING SYSTEM ---
     window.processPricingReport = function() {
-        let file = document.getElementById('pricingReportFile').files[0];
-        if(!file) return alert("Upload Report First!");
-        
-        document.getElementById("sync-status").innerHTML = "⚙️ Processing SKUs...";
+        let file = document.getElementById('pricingReportFile').files[0]; if(!file) return alert("Upload Report First!");
         let reader = new FileReader();
         reader.onload = async function(e) {
-            let data = new Uint8Array(e.target.result);
-            let workbook = XLSX.read(data, {type: 'array'});
+            let data = new Uint8Array(e.target.result); let workbook = XLSX.read(data, {type: 'array'});
             let json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
-            let db = getDB();
-            let count = 0;
-
+            let db = getDB(); let count = 0;
             json.forEach(rawRow => {
-                let row = normalizeRow(rawRow);
-                let sellerSku = extractSellerSKU(row);
-                let asin = extractASIN(row);
-                let filePrice = extractPrice(row); 
-
+                let row = normalizeRow(rawRow); let sellerSku = extractSellerSKU(row); let asin = extractASIN(row); let filePrice = extractPrice(row); 
                 if (sellerSku && asin) {
-                    sellerSku = sellerSku.toString().trim().replace(/[.#$\[\]\/]/g, "_");
-                    asin = asin.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_");
-                    
-                    if (!db.pricingSKUs[sellerSku]) {
-                        db.pricingSKUs[sellerSku] = { asin: asin, amzFee: 0, delFee: 0, packFee: 0, currSell: filePrice, desSell: 0 };
-                        count++;
-                    } else {
-                        db.pricingSKUs[sellerSku].asin = asin;
-                        if (filePrice > 0) db.pricingSKUs[sellerSku].currSell = filePrice;
-                    }
+                    sellerSku = sellerSku.toString().trim().replace(/[.#$\[\]\/]/g, "_"); asin = asin.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_");
+                    if (!db.pricingSKUs[sellerSku]) { db.pricingSKUs[sellerSku] = { asin: asin, amzFee: 0, delFee: 0, packFee: 0, currSell: filePrice, desSell: 0 }; count++; } 
+                    else { db.pricingSKUs[sellerSku].asin = asin; if (filePrice > 0) db.pricingSKUs[sellerSku].currSell = filePrice; }
                 }
-            });
-            await saveDB(db);
-            alert(`${count} Seller SKUs added/updated! Current Selling Prices fetched from file.`);
-        };
-        reader.readAsArrayBuffer(file);
+            }); await saveDB(db); alert(`${count} Seller SKUs added/updated!`);
+        }; reader.readAsArrayBuffer(file);
     };
 
     window.renderPricingTable = function() {
@@ -650,33 +839,26 @@
             let purchasePrice = db.purchasePrices[masterSku] || 0; let costPrice = purchasePrice * packQty;
 
             html += `<tr>
-                <td><strong>${sSku}</strong></td>
-                <td>${asin}</td>
-                <td style="color:#666;">${masterSku} <br><small>(Pack: ${packQty})</small></td>
+                <td><strong>${sSku}</strong></td><td>${asin}</td><td style="color:#666;">${masterSku} <br><small>(Pack: ${packQty})</small></td>
                 <td style="font-weight:bold;">₹<span id="cost_${sSku}">${costPrice.toFixed(2)}</span></td>
                 <td><input type="number" id="amz_${sSku}" class="price-input" value="${pData.amzFee}" oninput="window.calcRow('${sSku}')"></td>
                 <td><input type="number" id="del_${sSku}" class="price-input" value="${pData.delFee}" oninput="window.calcRow('${sSku}')"></td>
                 <td><input type="number" id="pack_${sSku}" class="price-input" value="${pData.packFee}" oninput="window.calcRow('${sSku}')"></td>
                 <td class="highlight-col"><span style="font-size:11px; color:#555;">Misc: ₹<span id="minMisc_${sSku}">0</span></span><br><strong>₹<span id="minSelling_${sSku}">0.00</span></strong></td>
                 <td><input type="number" id="currSell_${sSku}" class="price-input" value="${pData.currSell}" oninput="window.calcRow('${sSku}')"></td>
-                <td class="profit-col" id="currProfit_${sSku}">₹0 (0%)</td>
+                <td class="profit-col" id="currProfit_${sSku}">₹0</td>
                 <td><input type="number" id="desSell_${sSku}" class="price-input" value="${pData.desSell}" oninput="window.calcRow('${sSku}')"></td>
-                <td class="profit-col" id="desProfit_${sSku}">₹0 (0%)</td>
+                <td class="profit-col" id="desProfit_${sSku}">₹0</td>
                 <td><button class="btn btn-small" onclick="window.savePricingRow('${sSku}')">Save</button></td>
             </tr>`;
         }
         let tbody = document.getElementById("pricingTableBody");
-        if(tbody) { tbody.innerHTML = html; for (let sSku in db.pricingSKUs) { window.calcRow(sSku); } }
+        if(tbody) { tbody.innerHTML = html; for (let sSku in db.pricingSKUs) window.calcRow(sSku); }
     };
 
     window.calcRow = function(sSku) {
-        let cost = parseFloat(document.getElementById(`cost_${sSku}`).innerText) || 0;
-        let amz = parseFloat(document.getElementById(`amz_${sSku}`).value) || 0;
-        let del = parseFloat(document.getElementById(`del_${sSku}`).value) || 0;
-        let pack = parseFloat(document.getElementById(`pack_${sSku}`).value) || 0;
-
+        let cost = parseFloat(document.getElementById(`cost_${sSku}`).innerText) || 0; let amz = parseFloat(document.getElementById(`amz_${sSku}`).value) || 0; let del = parseFloat(document.getElementById(`del_${sSku}`).value) || 0; let pack = parseFloat(document.getElementById(`pack_${sSku}`).value) || 0;
         let base = cost + amz + del + pack; let minMisc = base * 0.05; let minSubtotal = base + minMisc; let minProfit = minSubtotal * 0.10; let minSelling = minSubtotal + minProfit;
-
         document.getElementById(`minMisc_${sSku}`).innerText = minMisc.toFixed(2); document.getElementById(`minSelling_${sSku}`).innerText = minSelling.toFixed(2);
 
         let currSell = parseFloat(document.getElementById(`currSell_${sSku}`).value) || 0; let currMisc = currSell * 0.05; let currExpenses = cost + amz + del + pack + currMisc;
@@ -689,15 +871,62 @@
     };
 
     window.savePricingRow = async function(sSku) {
-        let db = getDB();
-        if(db.pricingSKUs[sSku]) {
-            db.pricingSKUs[sSku].amzFee = parseFloat(document.getElementById(`amz_${sSku}`).value) || 0;
-            db.pricingSKUs[sSku].delFee = parseFloat(document.getElementById(`del_${sSku}`).value) || 0;
-            db.pricingSKUs[sSku].packFee = parseFloat(document.getElementById(`pack_${sSku}`).value) || 0;
-            db.pricingSKUs[sSku].currSell = parseFloat(document.getElementById(`currSell_${sSku}`).value) || 0;
-            db.pricingSKUs[sSku].desSell = parseFloat(document.getElementById(`desSell_${sSku}`).value) || 0;
+        let db = getDB(); if(db.pricingSKUs[sSku]) {
+            db.pricingSKUs[sSku].amzFee = parseFloat(document.getElementById(`amz_${sSku}`).value)||0; db.pricingSKUs[sSku].delFee = parseFloat(document.getElementById(`del_${sSku}`).value)||0; db.pricingSKUs[sSku].packFee = parseFloat(document.getElementById(`pack_${sSku}`).value)||0; db.pricingSKUs[sSku].currSell = parseFloat(document.getElementById(`currSell_${sSku}`).value)||0; db.pricingSKUs[sSku].desSell = parseFloat(document.getElementById(`desSell_${sSku}`).value)||0;
             await saveDB(db);
         }
+    };
+
+    // --- TAB 8: ORDER HISTORY LEDGER (NEW) ---
+    window.toggleLedgerDateInputs = function() {
+        let filterType = document.getElementById("ledgerDateFilterType").value;
+        document.getElementById("ledgerExactDateDiv").style.display = filterType === "exact" ? "block" : "none";
+        document.getElementById("ledgerRangeDateDiv").style.display = filterType === "range" ? "flex" : "none";
+        window.renderOrderHistoryTable(); // Re-render when filter type changes
+    };
+
+    window.renderOrderHistoryTable = function() {
+        let db = getDB(); let html = "";
+        let ledgerDates = Object.keys(db.ledger || {}).sort((a,b) => new Date(b) - new Date(a)); // Sort newest first
+
+        // --- FILTERING LOGIC ---
+        let filterSelect = document.getElementById("ledgerDateFilterType");
+        let filterType = filterSelect ? filterSelect.value : "all";
+        
+        if (filterType === "exact") {
+            let exactDate = document.getElementById("ledgerExactDate").value;
+            if (exactDate) {
+                ledgerDates = ledgerDates.filter(d => d === exactDate);
+            }
+        } else if (filterType === "range") {
+            let startDate = document.getElementById("ledgerStartDate").value;
+            let endDate = document.getElementById("ledgerEndDate").value;
+            
+            if (startDate && endDate) {
+                ledgerDates = ledgerDates.filter(d => new Date(d) >= new Date(startDate) && new Date(d) <= new Date(endDate));
+            } else if (startDate) {
+                 ledgerDates = ledgerDates.filter(d => new Date(d) >= new Date(startDate));
+            } else if (endDate) {
+                 ledgerDates = ledgerDates.filter(d => new Date(d) <= new Date(endDate));
+            }
+        }
+        // ------------------------
+
+        for (let date of ledgerDates) {
+            for(let sku in db.ledger[date]) {
+                let data = db.ledger[date][sku];
+                if(data.orders > 0) {
+                    html += `<tr>
+                        <td><strong>${date}</strong></td>
+                        <td style="color:#0277bd; font-weight:bold;">${sku}</td>
+                        <td>${data.orders} Orders</td>
+                        <td style="color:red; font-weight:bold;">- ${data.qty} Units</td>
+                    </tr>`;
+                }
+            }
+        }
+        let tbody = document.getElementById("orderHistoryTableBody"); 
+        if(tbody) tbody.innerHTML = html || "<tr><td colspan='4' style='text-align:center;'>No orders found for selected dates.</td></tr>";
     };
 </script>
 
