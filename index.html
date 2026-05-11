@@ -41,6 +41,9 @@
         th, td { padding: 8px; text-align: left; vertical-align: middle; }
         th { background-color: #007bff; color: white; position: sticky; top: 0; }
         
+        /* Filter Input Styles */
+        .header-filter { width: 100%; padding: 4px; font-size: 11px; margin-top: 5px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 3px; }
+        
         .badge-green { background: #e8f5e9; color: #2e7d32; padding: 3px 8px; border-radius: 12px; font-weight: bold; }
         .badge-red { background: #ffebee; color: #c62828; padding: 3px 8px; border-radius: 12px; font-weight: bold; }
         .ref-sku { color: #856404; background-color: #fff3cd; padding: 2px 6px; border-radius: 4px; font-size: 12px; font-family: monospace; }
@@ -123,7 +126,7 @@
         </div>
 
         <div class="table-responsive">
-            <table>
+            <table id="tblMasterStock">
                 <thead><tr><th>Master SKU</th><th>Purchase Price (₹)</th><th>Linked ASINs</th><th>Total Master Stock</th><th>Action</th></tr></thead>
                 <tbody id="masterStockTableBody"></tbody>
             </table>
@@ -132,10 +135,10 @@
 
     <div id="StockLocations" class="tabcontent">
         <h3>Detailed Stock Locations</h3>
-        <p style="color: #666; font-size: 13px;">Break down your Master Stock by location. Any changes here instantly update the Total Master Stock. If you alter the total Master Stock directly, the 'Warehouse' location acts as the auto-balancer.</p>
+        <p style="color: #666; font-size: 13px;">Break down your Master Stock by location. Any changes here instantly update the Total Master Stock.</p>
         
         <div class="table-responsive">
-            <table>
+            <table id="tblLocations">
                 <thead>
                     <tr>
                         <th>Master SKU</th>
@@ -168,7 +171,7 @@
             <button class="btn btn-danger btn-small" onclick="window.deleteSelectedASINs()">🗑️ Delete Selected</button>
         </div>
         <div class="table-responsive">
-            <table>
+            <table id="tblASINMapping">
                 <thead>
                     <tr>
                         <th style="width: 40px; text-align: center;"><input type="checkbox" id="selectAllASINs" onclick="window.toggleAllASINs()"></th>
@@ -186,7 +189,7 @@
             <input type="file" id="amazonInventoryFile" accept=".txt, .csv, .xlsx">
             <button class="btn" onclick="window.processInventoryFile()">Calculate Live Inventory</button>
         </div>
-        <div class="table-responsive"><table><thead><tr><th>Master SKU</th><th>Live on Amazon (Pack Adjusted)</th><th>Total Warehouse Stock</th></tr></thead><tbody id="inventoryTableBody"></tbody></table></div>
+        <div class="table-responsive"><table id="tblInventoryStatus"><thead><tr><th>Master SKU</th><th>Live on Amazon (Pack Adjusted)</th><th>Total Warehouse Stock</th></tr></thead><tbody id="inventoryTableBody"></tbody></table></div>
     </div>
 
     <div id="OrderProcessing" class="tabcontent">
@@ -199,17 +202,17 @@
                 <button class="btn" onclick="window.processOrderFile()">Process Orders & Sync to Cloud</button>
                 <button class="btn btn-warning" onclick="window.reverseOrderFile()">⏪ Reverse This File (Undo Mistake)</button>
             </div>
-            <p style="font-size: 12px; color: #666; margin-top: 10px;">* Processing an order file updates Master Stock, Sales Trends, AND records the ledger in Order History.</p>
+            <p style="font-size: 12px; color: #666; margin-top: 10px;">* Orders processed here are automatically logged directly into the <b>Order History Ledger</b>.</p>
         </div>
         
-        <div class="table-responsive"><table><thead><tr><th>Master SKU</th><th>Opening Stock</th><th>Action Processed</th><th>Closing Stock</th></tr></thead><tbody id="orderTableBody"></tbody></table></div>
+        <div class="table-responsive"><table id="tblOrderProcessing"><thead><tr><th>Master SKU</th><th>Opening Stock</th><th>Action Processed</th><th>Closing Stock</th></tr></thead><tbody id="orderTableBody"></tbody></table></div>
     </div>
 
     <div id="SalesAlerts" class="tabcontent">
         <h3>3-Day Sales Tracking & Alerts</h3>
         <p style="color: #666; font-size: 13px;">Shows daily breakdown, calculates your daily average, and sets the Target Stock required for the next 3 days based on that average.</p>
         <div class="table-responsive">
-            <table>
+            <table id="tblSalesAlerts">
                 <thead>
                     <tr>
                         <th>Master SKU</th>
@@ -242,7 +245,7 @@
         </div>
 
         <div class="table-responsive">
-            <table>
+            <table id="tblPricingSystem">
                 <thead>
                     <tr>
                         <th>Seller SKU</th>
@@ -267,7 +270,7 @@
 
     <div id="OrderHistory" class="tabcontent">
         <h3>Order History Ledger</h3>
-        <p style="color: #666; font-size: 13px;">A permanent record of all orders processed, categorized by Date and Master SKU.</p>
+        <p style="color: #666; font-size: 13px;">A permanent, detailed record of every order processed. Uses <b>Order ID + ASIN</b> combination to prevent duplicates.</p>
         
         <div class="section-box" style="display: flex; gap: 15px; align-items: flex-end; margin-bottom: 15px; background: #eef2f5;">
             <div>
@@ -297,13 +300,14 @@
         </div>
 
         <div class="table-responsive">
-            <table>
+            <table id="tblOrderHistory">
                 <thead>
                     <tr>
                         <th>Processing Date</th>
+                        <th>Order ID</th>
                         <th>Master SKU</th>
-                        <th>Total Individual Orders Received</th>
-                        <th>Total Qty Deducted (Pack Adjusted)</th>
+                        <th>ASIN</th>
+                        <th>Qty Deducted</th>
                     </tr>
                 </thead>
                 <tbody id="orderHistoryTableBody"></tbody>
@@ -317,7 +321,78 @@
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-app.js";
     import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-database.js";
 
-    // 1. UI SETUP
+    // --- UNIVERSAL TABLE HEADER FILTERS ---
+    window.buildTableFilters = function(tableId) {
+        let table = document.getElementById(tableId);
+        if (!table) return;
+        let thead = table.querySelector("thead");
+        if (!thead) return;
+
+        // Ensure we don't build duplicate filter rows
+        let existingFilterRow = thead.querySelector(".filter-row");
+        if (existingFilterRow) existingFilterRow.remove();
+
+        let filterRow = document.createElement("tr");
+        filterRow.className = "filter-row";
+
+        // Grab the first TR in thead (the actual headers)
+        let ths = thead.querySelectorAll("tr:first-child th");
+        
+        ths.forEach((th, index) => {
+            let filterTh = document.createElement("th");
+            filterTh.style.padding = "4px";
+            filterTh.style.backgroundColor = "#e9ecef";
+
+            // Exclude action columns or checkbox columns from filtering
+            if (th.innerText.toLowerCase().includes("action") || th.querySelector("input[type=checkbox]")) {
+                filterRow.appendChild(filterTh);
+                return;
+            }
+
+            let input = document.createElement("input");
+            input.type = "text";
+            input.placeholder = "🔍 Filter...";
+            input.className = "header-filter";
+            input.onkeyup = function() { window.filterTableByInput(tableId); };
+
+            filterTh.appendChild(input);
+            filterRow.appendChild(filterTh);
+        });
+
+        thead.appendChild(filterRow);
+    };
+
+    window.filterTableByInput = function(tableId) {
+        let table = document.getElementById(tableId);
+        let filterRow = table.querySelector(".filter-row");
+        let inputs = filterRow.querySelectorAll("input");
+        let trs = table.querySelector("tbody").querySelectorAll("tr");
+        
+        trs.forEach(tr => {
+            let show = true;
+            inputs.forEach((input, index) => {
+                let filterValue = input.value.toLowerCase().trim();
+                if (filterValue) {
+                    // Index lines up with the cell index
+                    let cell = tr.cells[index];
+                    let cellText = cell ? (cell.innerText || cell.textContent).toLowerCase() : "";
+                    
+                    // Also check for input values if it's an editable cell
+                    let cellInput = cell ? cell.querySelector("input") : null;
+                    if (cellInput) {
+                        cellText += " " + cellInput.value.toLowerCase();
+                    }
+
+                    if (!cellText.includes(filterValue)) {
+                        show = false;
+                    }
+                }
+            });
+            tr.style.display = show ? "" : "none";
+        });
+    };
+
+    // --- UI SETUP ---
     window.openTab = function(evt, tabName) {
         document.querySelectorAll(".tabcontent").forEach(tab => tab.style.display = "none");
         document.querySelectorAll(".tablinks").forEach(link => link.classList.remove("active"));
@@ -325,11 +400,11 @@
         evt.currentTarget.classList.add("active");
     };
 
-    // Added locations and ledger to DB structure
-    window.cloudDB = { masters: {}, asins: {}, sales: {}, purchasePrices: {}, pricingSKUs: {}, processedOrders: {}, locations: {}, ledger: {} };
+    // Added processedOrders to store FULL order details, not just true/false
+    window.cloudDB = { masters: {}, asins: {}, sales: {}, purchasePrices: {}, pricingSKUs: {}, processedOrders: {}, locations: {} };
     function getDB() { return JSON.parse(JSON.stringify(window.cloudDB)); }
 
-    // 2. FIREBASE SETUP WITH RESTORED KEYS
+    // --- FIREBASE SETUP ---
     const firebaseConfig = {
         apiKey: "AIzaSyC0wdeubQEyY9nrvT942lr-kiOLuHpMNjU",
         authDomain: "inventory-app-c47eb.firebaseapp.com",
@@ -355,9 +430,7 @@
             window.cloudDB.pricingSKUs = data.pricingSKUs || {};
             window.cloudDB.processedOrders = data.processedOrders || {};
             window.cloudDB.locations = data.locations || {};
-            window.cloudDB.ledger = data.ledger || {};
 
-            // Initialize missing locations for existing masters
             for(let sku in window.cloudDB.masters) {
                 if(!window.cloudDB.locations[sku]) {
                     window.cloudDB.locations[sku] = { rack: 0, wh: window.cloudDB.masters[sku], new: 0 };
@@ -451,12 +524,12 @@
                 let totalStock = parseInt(row["TOTAL STOCK"] || row["STOCK"] || 0);
                 
                 let rack = parseInt(row["RACK STOCK"] || row["RACK"] || 0);
-                let wh = parseInt(row["WAREHOUSE STOCK"] || row["WAREHOUSE"] || totalStock); // Fallback to total if breakdown missing
+                let wh = parseInt(row["WAREHOUSE STOCK"] || row["WAREHOUSE"] || totalStock);
                 let newPurch = parseInt(row["NEW PURCHASE"] || row["NEW"] || 0);
 
                 if (sku) {
                     sku = sku.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_");
-                    db.masters[sku] = rack + wh + newPurch; // Auto calculate true total
+                    db.masters[sku] = rack + wh + newPurch; 
                     db.purchasePrices[sku] = isNaN(price) ? 0 : price;
                     db.locations[sku] = { rack: isNaN(rack)?0:rack, wh: isNaN(wh)?0:wh, new: isNaN(newPurch)?0:newPurch };
                     count++;
@@ -490,11 +563,11 @@
         
         if (action === "add") { 
             db.masters[sku] = (db.masters[sku] || 0) + stockInput; 
-            db.locations[sku].wh += stockInput; // Dumps additions into WH bucket
+            db.locations[sku].wh += stockInput; 
         } else { 
             let diff = stockInput - (db.masters[sku] || 0);
             db.masters[sku] = stockInput; 
-            db.locations[sku].wh += diff; // Balances using WH bucket
+            db.locations[sku].wh += diff; 
         }
         
         db.purchasePrices[sku] = purchasePrice;
@@ -526,7 +599,11 @@
                 </td>
             </tr>`;
         }
-        let tbody = document.getElementById("masterStockTableBody"); if(tbody) tbody.innerHTML = html;
+        let tbody = document.getElementById("masterStockTableBody"); 
+        if(tbody) {
+            tbody.innerHTML = html;
+            setTimeout(() => window.buildTableFilters("tblMasterStock"), 50);
+        }
     };
 
     window.editPurchasePrice = async function(sku) {
@@ -548,9 +625,6 @@
         if (db.locations[oldSku]) { db.locations[newSku] = db.locations[oldSku]; delete db.locations[oldSku]; }
         for (let asin in db.asins) { if (db.asins[asin].master === oldSku) db.asins[asin].master = newSku; }
         
-        // Also migrate ledger history (optional but good practice)
-        for(let date in db.ledger) { if(db.ledger[date][oldSku]) { db.ledger[date][newSku] = db.ledger[date][oldSku]; delete db.ledger[date][oldSku]; } }
-        
         await saveDB(db);
     };
 
@@ -560,7 +634,7 @@
         await saveDB(db);
     };
 
-    // --- TAB 2: STOCK LOCATIONS (NEW) ---
+    // --- TAB 2: STOCK LOCATIONS ---
     window.renderLocationsTable = function() {
         let db = getDB(); let html = "";
         for (let sku in db.masters) {
@@ -574,7 +648,11 @@
                 <td><button class="btn btn-small" onclick="window.saveLocations('${sku}')">Save Breakup</button></td>
             </tr>`;
         }
-        let tbody = document.getElementById("locationsTableBody"); if(tbody) tbody.innerHTML = html;
+        let tbody = document.getElementById("locationsTableBody"); 
+        if(tbody) {
+            tbody.innerHTML = html;
+            setTimeout(() => window.buildTableFilters("tblLocations"), 50);
+        }
     };
 
     window.saveLocations = async function(sku) {
@@ -584,7 +662,7 @@
         let n = parseInt(document.getElementById(`loc_new_${sku}`).value) || 0;
         
         db.locations[sku] = { rack: r, wh: w, new: n };
-        db.masters[sku] = r + w + n; // Hard sync to Master
+        db.masters[sku] = r + w + n; 
         await saveDB(db);
     };
 
@@ -617,7 +695,11 @@
                 <td><input type="number" id="map_pack_${asin}" class="inline-input price-input" value="${data.pack}" min="1"></td>
                 <td style="white-space: nowrap;">${status} <br><br> <button class="btn btn-small" onclick="window.saveSingleMapping('${asin}')">Save</button></td></tr>`;
         }
-        let tbody = document.getElementById("asinMappingTableBody"); if(tbody) tbody.innerHTML = html;
+        let tbody = document.getElementById("asinMappingTableBody"); 
+        if(tbody) {
+            tbody.innerHTML = html;
+            setTimeout(() => window.buildTableFilters("tblASINMapping"), 50);
+        }
     };
 
     window.downloadMappingTemplate = function() {
@@ -639,7 +721,6 @@
                 
                 json.forEach(rawRow => {
                     let row = normalizeRow(rawRow); 
-                    // Auto-detect columns from your CSV
                     let asin = extractASIN(row) || row["ASIN"]; 
                     let master = row["MASTER SKU"] || row["MASTERSKU"]; 
                     let pack = parseInt(row["PACK QTY"] || row["PACKQTY"] || 1);
@@ -650,17 +731,14 @@
                         asin = asin.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_"); 
                         master = master.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_");
                         
-                        // 1. Force create the ASIN if it isn't in the cloud yet
                         if (!db.asins[asin]) {
                             db.asins[asin] = { master: "", pack: 1, title: title, sellerSku: sellerSku };
                         }
                         
-                        // 2. Map the Master SKU and Pack Qty
                         db.asins[asin].master = master; 
                         db.asins[asin].pack = isNaN(pack) ? 1 : pack; 
                         mappedCount++; 
                         
-                        // 3. Force create the Master SKU in Tab 1 (with 0 stock to start)
                         if (db.masters[master] === undefined) { 
                             db.masters[master] = 0; 
                             db.locations[master] = { rack: 0, wh: 0, new: 0 }; 
@@ -706,11 +784,15 @@
             });
             let html = "";
             for (let mSku in db.masters) { html += `<tr><td><strong>${mSku}</strong></td><td style="color:blue; font-weight:bold;">${liveMasterStock[mSku] || 0}</td><td>${db.masters[mSku]}</td></tr>`; }
-            let tbody = document.getElementById("inventoryTableBody"); if(tbody) tbody.innerHTML = html;
+            let tbody = document.getElementById("inventoryTableBody"); 
+            if(tbody) {
+                tbody.innerHTML = html;
+                setTimeout(() => window.buildTableFilters("tblInventoryStatus"), 50);
+            }
         }; reader.readAsArrayBuffer(file);
     };
 
-    // --- TAB 5: DAILY ORDERS & LEDGER UPDATE ---
+    // --- TAB 5: DAILY ORDERS & DIRECT LEDGER UPDATE ---
     window.processOrderFile = function() {
         let file = document.getElementById('dailyOrderFile').files[0]; if(!file) return alert("Select Business/Order file!");
         let reader = new FileReader();
@@ -721,33 +803,38 @@
             let deductedStock = {}; let totalDeductionsFound = 0;
             let processedOrders = db.processedOrders || {}; 
             
-            let todayDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-            if(!db.ledger) db.ledger = {};
-            if(!db.ledger[todayDate]) db.ledger[todayDate] = {};
+            let todayDate = new Date().toISOString().split('T')[0]; 
 
             json.forEach(rawRow => {
                 let row = normalizeRow(rawRow); let asin = extractASIN(row); let ordered = extractOrders(row); let orderId = extractOrderID(row); 
+                
                 if(asin && ordered > 0) { 
                     asin = asin.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_"); 
+                    
+                    // Duplicate Logic: Unique by Order ID + ASIN combination
                     let uniqueKey = orderId ? `${orderId}_${asin}` : `NO_ID_${Date.now()}_${Math.random()}`;
 
                     if (!processedOrders[uniqueKey]) {
-                        processedOrders[uniqueKey] = true; 
+                        
                         let mapping = db.asins[asin]; 
                         if (mapping && mapping.master) { 
                             let totalQtyDeducted = (ordered * mapping.pack);
                             deductedStock[mapping.master] = (deductedStock[mapping.master] || 0) + totalQtyDeducted; 
                             totalDeductionsFound++; 
                             
-                            // Log to Ledger
-                            if(!db.ledger[todayDate][mapping.master]) db.ledger[todayDate][mapping.master] = { orders: 0, qty: 0 };
-                            db.ledger[todayDate][mapping.master].orders += 1;
-                            db.ledger[todayDate][mapping.master].qty += totalQtyDeducted;
+                            // Save detailed exact record into Order History Database
+                            processedOrders[uniqueKey] = {
+                                date: todayDate,
+                                orderId: orderId || "N/A",
+                                master: mapping.master,
+                                asin: asin,
+                                qty: totalQtyDeducted
+                            };
                         } 
                     }
                 }
             });
-            if (totalDeductionsFound === 0) return alert("Notice: No new valid orders found.");
+            if (totalDeductionsFound === 0) return alert("Notice: No new valid orders found (or all were duplicates).");
             
             let html = "";
             for (let mSku in db.masters) {
@@ -756,11 +843,15 @@
                     if(!db.sales[mSku]) db.sales[mSku] = []; db.sales[mSku].push(deduction); if(db.sales[mSku].length > 3) db.sales[mSku].shift(); 
                     html += `<tr><td><strong>${mSku}</strong></td><td>${opening}</td><td style="color:red; font-weight:bold;">- ${deduction}</td><td style="color:green; font-weight:bold;">${closing}</td></tr>`; 
                     db.masters[mSku] = closing;
-                    if(db.locations[mSku]) db.locations[mSku].wh -= deduction; // Subtract from WH bucket logically
+                    if(db.locations[mSku]) db.locations[mSku].wh -= deduction; 
                 }
             }
             db.processedOrders = processedOrders; 
-            let tbody = document.getElementById("orderTableBody"); if(tbody) tbody.innerHTML = html;
+            let tbody = document.getElementById("orderTableBody"); 
+            if(tbody) {
+                tbody.innerHTML = html;
+                setTimeout(() => window.buildTableFilters("tblOrderProcessing"), 50);
+            }
             await saveDB(db); alert("Orders Deducted, Ledger Updated & Synced to Cloud!");
         }; reader.readAsArrayBuffer(file);
     };
@@ -774,27 +865,21 @@
             let json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
             let db = getDB(); let revertedStock = {}; let totalRevertsFound = 0; let processedOrders = db.processedOrders || {};
             
-            let todayDate = new Date().toISOString().split('T')[0];
-            
             json.forEach(rawRow => {
                 let row = normalizeRow(rawRow); let asin = extractASIN(row); let ordered = extractOrders(row); let orderId = extractOrderID(row);
+                
                 if(asin && ordered > 0) { 
                     asin = asin.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_"); 
                     let uniqueKey = orderId ? `${orderId}_${asin}` : null;
-                    if (!uniqueKey || processedOrders[uniqueKey]) {
-                        if (uniqueKey) delete processedOrders[uniqueKey]; 
-                        let mapping = db.asins[asin]; 
-                        if (mapping && mapping.master) { 
-                            let totalQtyDeducted = (ordered * mapping.pack);
-                            revertedStock[mapping.master] = (revertedStock[mapping.master] || 0) + totalQtyDeducted; 
-                            totalRevertsFound++; 
-                            
-                            // Revert Ledger
-                            if(db.ledger && db.ledger[todayDate] && db.ledger[todayDate][mapping.master]) {
-                                db.ledger[todayDate][mapping.master].orders = Math.max(0, db.ledger[todayDate][mapping.master].orders - 1);
-                                db.ledger[todayDate][mapping.master].qty = Math.max(0, db.ledger[todayDate][mapping.master].qty - totalQtyDeducted);
-                            }
-                        } 
+                    
+                    if (uniqueKey && processedOrders[uniqueKey]) {
+                        let processedData = processedOrders[uniqueKey];
+                        let revertQty = processedData.qty;
+                        revertedStock[processedData.master] = (revertedStock[processedData.master] || 0) + revertQty; 
+                        totalRevertsFound++; 
+                        
+                        // Remove from detailed ledger
+                        delete processedOrders[uniqueKey]; 
                     }
                 }
             });
@@ -814,7 +899,7 @@
         }; reader.readAsArrayBuffer(file);
     };
 
-    // --- TAB 6: SALES ALERTS (UPDATED EXPLICIT MATH) ---
+    // --- TAB 6: SALES ALERTS ---
     window.renderSalesAlertsTable = function() {
         let db = getDB(); let html = "";
         for (let sku in db.masters) {
@@ -825,7 +910,7 @@
             
             let sum = day1 + day2 + day3;
             let avg = history.length > 0 ? (sum / history.length).toFixed(1) : 0;
-            let targetReq = (avg * 3).toFixed(0); // Req for next 3 days
+            let targetReq = (avg * 3).toFixed(0); 
             
             let statusHtml = (currentStock < targetReq) ? `<span style="color: red; font-weight: bold;">🚨 Need to Restock</span>` : `<span style="color: green; font-weight: bold;">✅ Healthy</span>`;
             
@@ -839,7 +924,11 @@
                 <td>${statusHtml}</td>
             </tr>`;
         }
-        let tbody = document.getElementById("salesAlertsTableBody"); if(tbody) tbody.innerHTML = html;
+        let tbody = document.getElementById("salesAlertsTableBody"); 
+        if(tbody) {
+            tbody.innerHTML = html;
+            setTimeout(() => window.buildTableFilters("tblSalesAlerts"), 50);
+        }
     };
 
     // --- TAB 7: PRICING SYSTEM ---
@@ -884,7 +973,11 @@
             </tr>`;
         }
         let tbody = document.getElementById("pricingTableBody");
-        if(tbody) { tbody.innerHTML = html; for (let sSku in db.pricingSKUs) window.calcRow(sSku); }
+        if(tbody) { 
+            tbody.innerHTML = html; 
+            for (let sSku in db.pricingSKUs) window.calcRow(sSku); 
+            setTimeout(() => window.buildTableFilters("tblPricingSystem"), 50);
+        }
     };
 
     window.calcRow = function(sSku) {
@@ -908,94 +1001,46 @@
         }
     };
 
-    // --- EXPORT PRICING SYSTEM DATA ---
     window.downloadPricingReport = function() {
-        let db = getDB(); 
-        let dataToExport = [];
-
+        let db = getDB(); let dataToExport = [];
         for (let sSku in db.pricingSKUs) {
-            let pData = db.pricingSKUs[sSku]; 
-            let asin = pData.asin;
-            let masterSku = "Not Mapped"; 
-            let packQty = 1;
-            
-            if (db.asins[asin] && db.asins[asin].master) { 
-                masterSku = db.asins[asin].master; 
-                packQty = db.asins[asin].pack || 1; 
-            }
-            
-            let purchasePrice = db.purchasePrices[masterSku] || 0; 
-            let costPrice = purchasePrice * packQty;
-
-            // Fetch fees
-            let amz = parseFloat(pData.amzFee) || 0;
-            let del = parseFloat(pData.delFee) || 0;
-            let pack = parseFloat(pData.packFee) || 0;
-
-            // Replicate the calculation logic for the export
-            let base = costPrice + amz + del + pack; 
-            let minMisc = base * 0.05; 
-            let minSubtotal = base + minMisc; 
-            let minProfit = minSubtotal * 0.10; 
-            let minSelling = minSubtotal + minProfit;
-
-            let currSell = parseFloat(pData.currSell) || 0; 
-            let currMisc = currSell * 0.05; 
-            let currExpenses = costPrice + amz + del + pack + currMisc;
-            let currProfit = currSell - currExpenses; 
+            let pData = db.pricingSKUs[sSku]; let asin = pData.asin; let masterSku = "Not Mapped"; let packQty = 1;
+            if (db.asins[asin] && db.asins[asin].master) { masterSku = db.asins[asin].master; packQty = db.asins[asin].pack || 1; }
+            let costPrice = (db.purchasePrices[masterSku] || 0) * packQty;
+            let amz = parseFloat(pData.amzFee) || 0; let del = parseFloat(pData.delFee) || 0; let pack = parseFloat(pData.packFee) || 0;
+            let minSubtotal = (costPrice + amz + del + pack) * 1.05; let minSelling = minSubtotal * 1.10;
+            let currSell = parseFloat(pData.currSell) || 0; let currProfit = currSell - (costPrice + amz + del + pack + (currSell * 0.05)); 
             let currProfitPct = currSell > 0 ? (currProfit / currSell) * 100 : 0;
-
-            let desSell = parseFloat(pData.desSell) || 0; 
-            let desMisc = desSell * 0.05; 
-            let desExpenses = costPrice + amz + del + pack + desMisc;
-            let desProfit = desSell - desExpenses; 
+            let desSell = parseFloat(pData.desSell) || 0; let desProfit = desSell - (costPrice + amz + del + pack + (desSell * 0.05)); 
             let desProfitPct = desSell > 0 ? (desProfit / desSell) * 100 : 0;
 
-            // Push to export array
             dataToExport.push({
-                "Seller SKU": sSku,
-                "ASIN": asin,
-                "Master SKU": masterSku,
-                "Cost Price (₹)": costPrice.toFixed(2),
-                "Amz Fee (₹)": amz.toFixed(2),
-                "Del Fee (₹)": del.toFixed(2),
-                "Pack Fee (₹)": pack.toFixed(2),
-                "Min Selling Price (₹)": minSelling.toFixed(2),
-                "Current Sell (₹)": currSell.toFixed(2),
-                "Current Profit (₹)": currProfit.toFixed(2),
-                "Current Profit (%)": currProfitPct.toFixed(1) + "%",
-                "Desired Sell (₹)": desSell.toFixed(2),
-                "Desired Profit (₹)": desProfit.toFixed(2),
-                "Desired Profit (%)": desProfitPct.toFixed(1) + "%"
+                "Seller SKU": sSku, "ASIN": asin, "Master SKU": masterSku, "Cost Price (₹)": costPrice.toFixed(2),
+                "Amz Fee (₹)": amz.toFixed(2), "Del Fee (₹)": del.toFixed(2), "Pack Fee (₹)": pack.toFixed(2),
+                "Min Selling Price (₹)": minSelling.toFixed(2), "Current Sell (₹)": currSell.toFixed(2), "Current Profit (₹)": currProfit.toFixed(2),
+                "Current Profit (%)": currProfitPct.toFixed(1) + "%", "Desired Sell (₹)": desSell.toFixed(2),
+                "Desired Profit (₹)": desProfit.toFixed(2), "Desired Profit (%)": desProfitPct.toFixed(1) + "%"
             });
         }
-
-        if (dataToExport.length === 0) return alert("No pricing data available to download!");
-
-        let worksheet = XLSX.utils.json_to_sheet(dataToExport); 
-        worksheet['!cols'] = [
-            {wch: 20}, {wch: 15}, {wch: 25}, {wch: 15}, 
-            {wch: 12}, {wch: 12}, {wch: 12}, {wch: 20}, 
-            {wch: 15}, {wch: 15}, {wch: 15}, {wch: 15}, 
-            {wch: 15}, {wch: 15}
-        ];
-        
-        let workbook = XLSX.utils.book_new(); 
-        XLSX.utils.book_append_sheet(workbook, worksheet, "Pricing_System"); 
-        XLSX.writeFile(workbook, "Viblizz_Pricing_Report.xlsx");
+        if (dataToExport.length === 0) return alert("No pricing data to download!");
+        let worksheet = XLSX.utils.json_to_sheet(dataToExport); worksheet['!cols'] = [{wch: 20}, {wch: 15}, {wch: 25}, {wch: 15}, {wch: 12}, {wch: 12}, {wch: 12}, {wch: 20}, {wch: 15}, {wch: 15}, {wch: 15}, {wch: 15}, {wch: 15}, {wch: 15}];
+        let workbook = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(workbook, worksheet, "Pricing_System"); XLSX.writeFile(workbook, "Viblizz_Pricing_Report.xlsx");
     };
 
-    // --- TAB 8: ORDER HISTORY LEDGER (NEW) ---
+    // --- TAB 8: DETAILED ORDER HISTORY LEDGER ---
     window.toggleLedgerDateInputs = function() {
         let filterType = document.getElementById("ledgerDateFilterType").value;
         document.getElementById("ledgerExactDateDiv").style.display = filterType === "exact" ? "block" : "none";
         document.getElementById("ledgerRangeDateDiv").style.display = filterType === "range" ? "flex" : "none";
-        window.renderOrderHistoryTable(); // Re-render when filter type changes
+        window.renderOrderHistoryTable(); 
     };
 
     window.renderOrderHistoryTable = function() {
         let db = getDB(); let html = "";
-        let ledgerDates = Object.keys(db.ledger || {}).sort((a,b) => new Date(b) - new Date(a)); // Sort newest first
+        
+        // Grab all detailed orders from processedOrders tracking and sort newest to oldest
+        let allOrders = Object.values(db.processedOrders || {}).filter(item => typeof item === 'object');
+        allOrders.sort((a, b) => new Date(b.date) - new Date(a.date));
 
         // --- FILTERING LOGIC ---
         let filterSelect = document.getElementById("ledgerDateFilterType");
@@ -1004,37 +1049,37 @@
         if (filterType === "exact") {
             let exactDate = document.getElementById("ledgerExactDate").value;
             if (exactDate) {
-                ledgerDates = ledgerDates.filter(d => d === exactDate);
+                allOrders = allOrders.filter(order => order.date === exactDate);
             }
         } else if (filterType === "range") {
             let startDate = document.getElementById("ledgerStartDate").value;
             let endDate = document.getElementById("ledgerEndDate").value;
             
             if (startDate && endDate) {
-                ledgerDates = ledgerDates.filter(d => new Date(d) >= new Date(startDate) && new Date(d) <= new Date(endDate));
+                allOrders = allOrders.filter(o => new Date(o.date) >= new Date(startDate) && new Date(o.date) <= new Date(endDate));
             } else if (startDate) {
-                 ledgerDates = ledgerDates.filter(d => new Date(d) >= new Date(startDate));
+                 allOrders = allOrders.filter(o => new Date(o.date) >= new Date(startDate));
             } else if (endDate) {
-                 ledgerDates = ledgerDates.filter(d => new Date(d) <= new Date(endDate));
+                 allOrders = allOrders.filter(o => new Date(o.date) <= new Date(endDate));
             }
         }
         // ------------------------
 
-        for (let date of ledgerDates) {
-            for(let sku in db.ledger[date]) {
-                let data = db.ledger[date][sku];
-                if(data.orders > 0) {
-                    html += `<tr>
-                        <td><strong>${date}</strong></td>
-                        <td style="color:#0277bd; font-weight:bold;">${sku}</td>
-                        <td>${data.orders} Orders</td>
-                        <td style="color:red; font-weight:bold;">- ${data.qty} Units</td>
-                    </tr>`;
-                }
-            }
+        for (let order of allOrders) {
+            html += `<tr>
+                <td><strong>${order.date}</strong></td>
+                <td>${order.orderId}</td>
+                <td style="color:#0277bd; font-weight:bold;">${order.master}</td>
+                <td>${order.asin}</td>
+                <td style="color:red; font-weight:bold;">- ${order.qty} Units</td>
+            </tr>`;
         }
+        
         let tbody = document.getElementById("orderHistoryTableBody"); 
-        if(tbody) tbody.innerHTML = html || "<tr><td colspan='4' style='text-align:center;'>No orders found for selected dates.</td></tr>";
+        if(tbody) {
+            tbody.innerHTML = html || "<tr><td colspan='5' style='text-align:center;'>No orders found for selected dates.</td></tr>";
+            setTimeout(() => window.buildTableFilters("tblOrderHistory"), 50);
+        }
     };
 </script>
 
