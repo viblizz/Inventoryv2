@@ -234,8 +234,11 @@
         
         <div class="section-box">
             <label>Update Pricing SKUs & Selling Prices (Upload "All Listings Report"):</label>
-            <input type="file" id="pricingReportFile" accept=".txt, .csv, .tsv, .xlsx">
-            <button class="btn" onclick="window.processPricingReport()">Load SKUs & Fetch Live Prices</button>
+            <div class="action-bar" style="margin-top: 10px;">
+                <input type="file" id="pricingReportFile" accept=".txt, .csv, .tsv, .xlsx" class="inline-input" style="width: auto;">
+                <button class="btn" onclick="window.processPricingReport()">Load SKUs & Fetch Live Prices</button>
+                <button class="btn btn-info" onclick="window.downloadPricingReport()">⬇️ Download Pricing Data (.xlsx)</button>
+            </div>
         </div>
 
         <div class="table-responsive">
@@ -903,6 +906,83 @@
             db.pricingSKUs[sSku].amzFee = parseFloat(document.getElementById(`amz_${sSku}`).value)||0; db.pricingSKUs[sSku].delFee = parseFloat(document.getElementById(`del_${sSku}`).value)||0; db.pricingSKUs[sSku].packFee = parseFloat(document.getElementById(`pack_${sSku}`).value)||0; db.pricingSKUs[sSku].currSell = parseFloat(document.getElementById(`currSell_${sSku}`).value)||0; db.pricingSKUs[sSku].desSell = parseFloat(document.getElementById(`desSell_${sSku}`).value)||0;
             await saveDB(db);
         }
+    };
+
+    // --- EXPORT PRICING SYSTEM DATA ---
+    window.downloadPricingReport = function() {
+        let db = getDB(); 
+        let dataToExport = [];
+
+        for (let sSku in db.pricingSKUs) {
+            let pData = db.pricingSKUs[sSku]; 
+            let asin = pData.asin;
+            let masterSku = "Not Mapped"; 
+            let packQty = 1;
+            
+            if (db.asins[asin] && db.asins[asin].master) { 
+                masterSku = db.asins[asin].master; 
+                packQty = db.asins[asin].pack || 1; 
+            }
+            
+            let purchasePrice = db.purchasePrices[masterSku] || 0; 
+            let costPrice = purchasePrice * packQty;
+
+            // Fetch fees
+            let amz = parseFloat(pData.amzFee) || 0;
+            let del = parseFloat(pData.delFee) || 0;
+            let pack = parseFloat(pData.packFee) || 0;
+
+            // Replicate the calculation logic for the export
+            let base = costPrice + amz + del + pack; 
+            let minMisc = base * 0.05; 
+            let minSubtotal = base + minMisc; 
+            let minProfit = minSubtotal * 0.10; 
+            let minSelling = minSubtotal + minProfit;
+
+            let currSell = parseFloat(pData.currSell) || 0; 
+            let currMisc = currSell * 0.05; 
+            let currExpenses = costPrice + amz + del + pack + currMisc;
+            let currProfit = currSell - currExpenses; 
+            let currProfitPct = currSell > 0 ? (currProfit / currSell) * 100 : 0;
+
+            let desSell = parseFloat(pData.desSell) || 0; 
+            let desMisc = desSell * 0.05; 
+            let desExpenses = costPrice + amz + del + pack + desMisc;
+            let desProfit = desSell - desExpenses; 
+            let desProfitPct = desSell > 0 ? (desProfit / desSell) * 100 : 0;
+
+            // Push to export array
+            dataToExport.push({
+                "Seller SKU": sSku,
+                "ASIN": asin,
+                "Master SKU": masterSku,
+                "Cost Price (₹)": costPrice.toFixed(2),
+                "Amz Fee (₹)": amz.toFixed(2),
+                "Del Fee (₹)": del.toFixed(2),
+                "Pack Fee (₹)": pack.toFixed(2),
+                "Min Selling Price (₹)": minSelling.toFixed(2),
+                "Current Sell (₹)": currSell.toFixed(2),
+                "Current Profit (₹)": currProfit.toFixed(2),
+                "Current Profit (%)": currProfitPct.toFixed(1) + "%",
+                "Desired Sell (₹)": desSell.toFixed(2),
+                "Desired Profit (₹)": desProfit.toFixed(2),
+                "Desired Profit (%)": desProfitPct.toFixed(1) + "%"
+            });
+        }
+
+        if (dataToExport.length === 0) return alert("No pricing data available to download!");
+
+        let worksheet = XLSX.utils.json_to_sheet(dataToExport); 
+        worksheet['!cols'] = [
+            {wch: 20}, {wch: 15}, {wch: 25}, {wch: 15}, 
+            {wch: 12}, {wch: 12}, {wch: 12}, {wch: 20}, 
+            {wch: 15}, {wch: 15}, {wch: 15}, {wch: 15}, 
+            {wch: 15}, {wch: 15}
+        ];
+        
+        let workbook = XLSX.utils.book_new(); 
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Pricing_System"); 
+        XLSX.writeFile(workbook, "Viblizz_Pricing_Report.xlsx");
     };
 
     // --- TAB 8: ORDER HISTORY LEDGER (NEW) ---
