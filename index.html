@@ -356,12 +356,6 @@
 
     window.executeBulkSave = async function() {
         let db = getDB();
-        
-        // Save Master Stock prices
-        document.querySelectorAll('input[id^="mst_price_"]').forEach(inp => {
-            let sku = inp.id.replace('mst_price_', '');
-            db.purchasePrices[sku] = parseFloat(inp.value) || 0;
-        });
 
         // Save Locations
         document.querySelectorAll('input[id^="loc_rack_"]').forEach(inp => {
@@ -788,10 +782,11 @@
             let count = linkedCounts[sku] || 0;
             html += `<tr>
                 <td><strong>${sku}</strong></td>
-                <td>₹ <input type="number" id="mst_price_${sku}" class="price-input" value="${db.purchasePrices[sku] || 0}" oninput="window.markEdit()" style="width: 80px;"></td>
+                <td>₹${db.purchasePrices[sku] || 0}</td>
                 <td>${count > 0 ? `<span class="badge-green">${count} Linked</span>` : `<span class="badge-red">0 Linked</span>`}</td>
                 <td style="font-size: 15px; font-weight: bold;">${db.masters[sku]}</td>
                 <td style="white-space: nowrap;">
+                    <button class="btn btn-small btn-info" onclick="window.editPurchasePrice('${sku}')">💲 Price</button>
                     <button class="btn btn-small btn-warning" onclick="window.renameMaster('${sku}')">✏️ Rename</button>
                     <button class="btn btn-small btn-danger" onclick="window.deleteMaster('${sku}')">🗑️ Del</button>
                 </td>
@@ -802,6 +797,12 @@
             tbody.innerHTML = html;
             setTimeout(() => window.buildTableFilters("tblMasterStock"), 50);
         }
+    };
+
+    window.editPurchasePrice = async function(sku) {
+        let db = getDB(); let oldPrice = db.purchasePrices[sku] || 0;
+        let newPrice = prompt(`Update Price for ${sku} (₹):\nCurrent: ₹${oldPrice}`, oldPrice);
+        if(newPrice !== null && !isNaN(newPrice) && newPrice.trim() !== "") { db.purchasePrices[sku] = parseFloat(newPrice); await saveDB(db); }
     };
 
     window.renameMaster = async function(oldSku) {
@@ -1212,7 +1213,11 @@
             let purchasePrice = db.purchasePrices[masterSku] || 0; let costPrice = purchasePrice * packQty;
 
             html += `<tr>
-                <td><strong>${sSku}</strong></td><td>${asin}</td><td style="color:#666;">${masterSku} <br><small>(Pack: ${packQty})</small></td>
+                <td><strong>${sSku}</strong></td><td>${asin}</td>
+                <td style="color:#666;">
+                    <div style="max-width: 250px; max-height: 60px; overflow-y: auto; font-size: 11px; line-height: 1.2; word-wrap: break-word; font-weight: bold; margin-bottom: 4px;" title="${masterSku}">${masterSku}</div>
+                    <small>(Pack: ${packQty})</small>
+                </td>
                 <td style="font-weight:bold;">₹<span id="cost_${sSku}">${costPrice.toFixed(2)}</span></td>
                 <td><input type="number" id="amz_${sSku}" class="price-input" value="${pData.amzFee}" oninput="window.calcRow('${sSku}'); window.markEdit();"></td>
                 <td><input type="number" id="del_${sSku}" class="price-input" value="${pData.delFee}" oninput="window.calcRow('${sSku}'); window.markEdit();"></td>
