@@ -335,7 +335,7 @@
 
     <div id="StockTally" class="tabcontent">
         <h3>ASIN & Master SKU Stock Tally</h3>
-        <p style="color: #666; font-size: 13px;">Track total units purchased (added to stock) vs units sold (deducted via orders) for any date range.</p>
+        <p style="color: #666; font-size: 13px;">Track total units purchased (Current Stock + Units Sold) and filter by date to see order activity.</p>
         
         <div class="section-box" style="display: flex; gap: 15px; align-items: flex-end; margin-bottom: 15px; background: #f3e5f5; border-color: #ce93d8;">
             <div>
@@ -370,9 +370,9 @@
                     <tr>
                         <th>Master SKU</th>
                         <th>Linked ASIN(s)</th>
-                        <th style="background-color:#d4edda; color:#155724;">Units Purchased (Added)</th>
+                        <th style="background-color:#d4edda; color:#155724;">Total Purchased (Added)</th>
                         <th style="background-color:#f8d7da; color:#721c24;">Units Sold (Deducted)</th>
-                        <th style="background-color:#d1ecf1; color:#0c5460;">Net Difference</th>
+                        <th style="background-color:#d1ecf1; color:#0c5460;">Current Stock (Rack+WH+New)</th>
                     </tr>
                 </thead>
                 <tbody id="stockTallyTableBody"></tbody>
@@ -1521,9 +1521,17 @@
         let activeMasters = new Set([...Object.keys(salesTally), ...Object.keys(purchaseTally)]);
 
         for (let mSku of activeMasters) {
-            let purchased = purchaseTally[mSku] || 0;
             let sold = salesTally[mSku] || 0;
-            let diff = purchased - sold;
+            let purchased = 0;
+            let currentStock = db.masters[mSku] || 0;
+
+            if (filterType === "all") {
+                // If All Dates, Purchased = Current Stock (Rack+WH+New) + Lifetime Sold
+                purchased = currentStock + sold;
+            } else {
+                // If Date Range, use the history ledger for purchases in that window
+                purchased = purchaseTally[mSku] || 0;
+            }
             
             // Collect all ASINs linked to this Master SKU to make it searchable
             let linkedAsins = [];
@@ -1535,12 +1543,16 @@
             
             let asinDisplay = linkedAsins.join(", ") || "None";
 
+            // Determine stock label to display
+            let stockDisplay = filterType === "all" ? currentStock : (purchased - sold);
+            let stockLabel = filterType === "all" ? currentStock : (stockDisplay > 0 ? '+'+stockDisplay : stockDisplay);
+
             html += `<tr>
                 <td><strong>${mSku}</strong></td>
                 <td style="font-size: 11px; max-width: 250px; word-wrap: break-word; color: #555;">${asinDisplay}</td>
-                <td style="color:green; font-weight:bold; font-size: 14px;">+${purchased}</td>
-                <td style="color:red; font-weight:bold; font-size: 14px;">-${sold}</td>
-                <td style="font-weight:bold; font-size: 14px; color: ${diff > 0 ? '#007bff' : (diff < 0 ? '#d32f2f' : 'black')}">${diff > 0 ? '+'+diff : diff}</td>
+                <td style="color:green; font-weight:bold; font-size: 14px;">${purchased}</td>
+                <td style="color:red; font-weight:bold; font-size: 14px;">${sold}</td>
+                <td style="font-weight:bold; font-size: 14px; color:#0c5460;">${stockLabel}</td>
             </tr>`;
         }
 
