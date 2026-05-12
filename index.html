@@ -72,6 +72,12 @@
     <div id="sync-status">🔴 Connecting...</div>
     <h2>Viblizz Warehouse & Inventory</h2>
 
+    <div id="globalBulkActionBar" style="display:none; position:sticky; top:0; z-index:9999; background:#fff3cd; border:1px solid #ffeeba; padding:12px; text-align:center; box-shadow: 0 4px 6px rgba(0,0,0,0.1); font-weight:bold; margin-bottom: 15px; border-radius: 5px;">
+        ⚠️ You have unsaved edits in your tables! 
+        <button class="btn" style="margin-left: 15px;" onclick="window.executeBulkSave()">💾 Bulk Save All Changes</button> 
+        <button class="btn btn-danger" onclick="window.cancelBulkEdits()">❌ Cancel</button>
+    </div>
+
     <div class="tab">
         <button class="tablinks active" onclick="window.openTab(event, 'MasterStock')">1. Master Stock</button>
         <button class="tablinks" onclick="window.openTab(event, 'StockLocations')" style="background-color: #fff3cd;">2. Stock Locations</button>
@@ -138,6 +144,13 @@
         <h3>Detailed Stock Locations</h3>
         <p style="color: #666; font-size: 13px;">Break down your Master Stock by location. Any changes here instantly update the Total Master Stock.</p>
         
+        <div class="section-box bulk-box action-bar" style="margin-bottom: 20px;">
+            <button class="btn btn-info" onclick="window.downloadLocationsTemplate()">⬇️ Download Locations Template</button>
+            <div style="border-left: 2px solid #ccc; height: 30px; margin: 0 10px;"></div>
+            <input type="file" id="locationsUploadFile" accept=".xlsx, .csv" style="width: auto; margin-bottom: 0;">
+            <button class="btn btn-warning" onclick="window.uploadLocationsExcel()">⬆️ Upload & Sync Locations</button>
+        </div>
+
         <div class="table-responsive">
             <table id="tblLocations">
                 <thead>
@@ -325,6 +338,74 @@
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-app.js";
     import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-database.js";
 
+    // Global states
+    window.tableFiltersState = {}; 
+    window.hasUnsavedEdits = false;
+
+    // --- BULK EDIT LOGIC ---
+    window.markEdit = function() {
+        window.hasUnsavedEdits = true;
+        document.getElementById('globalBulkActionBar').style.display = 'block';
+    };
+
+    window.cancelBulkEdits = function() {
+        window.hasUnsavedEdits = false;
+        document.getElementById('globalBulkActionBar').style.display = 'none';
+        window.renderAllTables(); // Re-render from DB to overwrite unsaved changes
+    };
+
+    window.executeBulkSave = async function() {
+        let db = getDB();
+        
+        // Save Master Stock prices
+        document.querySelectorAll('input[id^="mst_price_"]').forEach(inp => {
+            let sku = inp.id.replace('mst_price_', '');
+            db.purchasePrices[sku] = parseFloat(inp.value) || 0;
+        });
+
+        // Save Locations
+        document.querySelectorAll('input[id^="loc_rack_"]').forEach(inp => {
+            let sku = inp.id.replace('loc_rack_', '');
+            let r = parseInt(document.getElementById(`loc_rack_${sku}`).value) || 0;
+            let w = parseInt(document.getElementById(`loc_wh_${sku}`).value) || 0;
+            let n = parseInt(document.getElementById(`loc_new_${sku}`).value) || 0;
+            db.locations[sku] = { rack: r, wh: w, new: n };
+            db.masters[sku] = r + w + n; 
+        });
+
+        // Save ASIN Mapping
+        document.querySelectorAll('input[id^="map_master_"]').forEach(inp => {
+            let asin = inp.id.replace('map_master_', '');
+            let master = inp.value.trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_");
+            let pack = parseInt(document.getElementById(`map_pack_${asin}`).value) || 1;
+            if(db.asins[asin]) {
+                db.asins[asin].master = master;
+                db.asins[asin].pack = pack;
+                if(master && db.masters[master] === undefined) { 
+                    db.masters[master] = 0; db.locations[master] = { rack: 0, wh: 0, new: 0 }; 
+                }
+            }
+        });
+
+        // Save Pricing System
+        document.querySelectorAll('input[id^="amz_"]').forEach(inp => {
+            let sSku = inp.id.replace('amz_', '');
+            if(db.pricingSKUs[sSku]) {
+                db.pricingSKUs[sSku].amzFee = parseFloat(document.getElementById(`amz_${sSku}`).value)||0;
+                db.pricingSKUs[sSku].delFee = parseFloat(document.getElementById(`del_${sSku}`).value)||0;
+                db.pricingSKUs[sSku].packFee = parseFloat(document.getElementById(`pack_${sSku}`).value)||0;
+                db.pricingSKUs[sSku].currSell = parseFloat(document.getElementById(`currSell_${sSku}`).value)||0;
+                db.pricingSKUs[sSku].desSell = parseFloat(document.getElementById(`desSell_${sSku}`).value)||0;
+            }
+        });
+
+        window.hasUnsavedEdits = false;
+        document.getElementById('globalBulkActionBar').style.display = 'none';
+        await saveDB(db);
+        alert("All changes successfully bulk saved!");
+    };
+
+
     // --- UNIVERSAL CHECKBOX MULTI-SELECT FILTERS ---
     window.buildTableFilters = function(tableId) {
         let table = document.getElementById(tableId);
@@ -333,7 +414,6 @@
         let tbody = table.querySelector("tbody");
         if (!thead || !tbody) return;
 
-        // Prevent duplicating filter rows
         let existingFilterRow = thead.querySelector(".filter-row");
         if (existingFilterRow) existingFilterRow.remove();
 
@@ -343,7 +423,6 @@
         let ths = thead.querySelectorAll("tr:first-child th");
         let rows = Array.from(tbody.querySelectorAll("tr"));
 
-        // Extract unique text from each column
         let colValues = {};
         ths.forEach((th, colIndex) => {
             let uniqueVals = new Set();
@@ -354,20 +433,21 @@
                     let input = cell.querySelector("input");
                     if(input && input.type !== "checkbox") text += " " + input.value; // capture editable fields
                     text = text.trim();
-                    if (text && text !== "Save" && text !== "Save Breakup") uniqueVals.add(text);
+                    if (text && text !== "Save" && text !== "Save Breakup" && text !== "💲 Price" && text !== "✏️ Rename" && text !== "🗑️ Del") uniqueVals.add(text);
                 }
             });
             colValues[colIndex] = Array.from(uniqueVals).sort();
         });
 
-        // Build Custom Dropdowns
+        if(!window.tableFiltersState) window.tableFiltersState = {};
+        let savedFilters = window.tableFiltersState[tableId] || {};
+
         ths.forEach((th, index) => {
             let filterTh = document.createElement("th");
             filterTh.style.padding = "4px";
             filterTh.style.backgroundColor = "#e9ecef";
-            filterTh.style.position = "relative"; // Needed for dropdown positioning
+            filterTh.style.position = "relative"; 
 
-            // Skip checkboxes/action columns
             if (th.innerText.toLowerCase().includes("action") || th.querySelector("input[type=checkbox]")) {
                 filterRow.appendChild(filterTh);
                 return;
@@ -376,16 +456,13 @@
             let container = document.createElement("div");
             container.className = "filter-container";
 
-            // The clickable button
             let btn = document.createElement("div");
             btn.className = "filter-button";
             btn.innerHTML = `<span>Select...</span> <span style="font-size:10px;">▼</span>`;
             
-            // The Dropdown menu
             let dropdown = document.createElement("div");
             dropdown.className = "filter-dropdown";
 
-            // Search Box inside dropdown
             let searchDiv = document.createElement("div");
             searchDiv.className = "filter-search";
             let searchInput = document.createElement("input");
@@ -393,7 +470,6 @@
             searchInput.placeholder = "Search...";
             searchDiv.appendChild(searchInput);
 
-            // Checkbox List
             let optionsDiv = document.createElement("div");
             optionsDiv.className = "filter-options";
             
@@ -401,10 +477,13 @@
             selectAllLabel.innerHTML = `<input type="checkbox" class="select-all-cb"> <b>(Select All)</b>`;
             optionsDiv.appendChild(selectAllLabel);
 
+            let isColFiltered = savedFilters[index] !== undefined;
+
             colValues[index].forEach(val => {
                 let label = document.createElement("label");
-                label.title = val; // tooltip for long names
-                label.innerHTML = `<input type="checkbox" value="${val}" class="filter-cb"> ${val}`;
+                label.title = val; 
+                let isChecked = isColFiltered && savedFilters[index].includes(val) ? 'checked' : '';
+                label.innerHTML = `<input type="checkbox" value="${val}" class="filter-cb" ${isChecked}> ${val}`;
                 optionsDiv.appendChild(label);
             });
 
@@ -415,7 +494,6 @@
             filterTh.appendChild(container);
             filterRow.appendChild(filterTh);
 
-            // Toggle Dropdown logic
             btn.onclick = function(e) {
                 e.stopPropagation();
                 let isShowing = dropdown.classList.contains('show');
@@ -426,19 +504,17 @@
                 }
             };
             
-            dropdown.onclick = function(e) { e.stopPropagation(); }; // Don't close when clicking inside
+            dropdown.onclick = function(e) { e.stopPropagation(); }; 
 
-            // Search logic inside dropdown
             searchInput.onkeyup = function() {
                 let text = searchInput.value.toLowerCase();
                 Array.from(optionsDiv.querySelectorAll("label")).forEach((lbl, i) => {
-                    if (i === 0) return; // skip the 'Select All' box
+                    if (i === 0) return; 
                     let lblText = lbl.innerText.toLowerCase();
                     lbl.style.display = lblText.includes(text) ? "flex" : "none";
                 });
             };
 
-            // Checking boxes logic
             optionsDiv.addEventListener("change", function(e) {
                 if (e.target.classList.contains("select-all-cb")) {
                     let isChecked = e.target.checked;
@@ -454,9 +530,14 @@
         });
 
         thead.appendChild(filterRow);
+
+        // Retain saved filters visually and logically on render
+        if(Object.keys(savedFilters).length > 0) {
+            window.applyMultiSelectFilter(tableId, true);
+        }
     };
 
-    window.applyMultiSelectFilter = function(tableId) {
+    window.applyMultiSelectFilter = function(tableId, skipSave = false) {
         let table = document.getElementById(tableId);
         let thead = table.querySelector("thead");
         let tbody = table.querySelector("tbody");
@@ -479,6 +560,11 @@
             }
         });
 
+        if (!skipSave) {
+            if(!window.tableFiltersState) window.tableFiltersState = {};
+            window.tableFiltersState[tableId] = activeFilters;
+        }
+
         rows.forEach(row => {
             let show = true;
             for (let colIndex in activeFilters) {
@@ -499,7 +585,6 @@
         });
     };
 
-    // Close all custom dropdowns when clicking anywhere outside
     document.addEventListener('click', function() {
         document.querySelectorAll('.filter-dropdown').forEach(d => d.classList.remove('show'));
     });
@@ -533,6 +618,10 @@
         const database = getDatabase(app);
 
         onValue(ref(database, 'inventory'), (snapshot) => {
+            if (window.hasUnsavedEdits) {
+                return; // Prevent overwriting user's active un-saved edits mid-typing
+            }
+
             const data = snapshot.val() || {};
             window.cloudDB.masters = data.masters || {};
             window.cloudDB.asins = data.asins || {};
@@ -691,21 +780,18 @@
 
     window.renderMasterStockTable = function() {
         let db = getDB(); let html = "";
-        let filterSelect = document.getElementById("masterFilter");
-        let filterValue = filterSelect ? filterSelect.value : "all";
         let linkedCounts = {};
         for (let sku in db.masters) linkedCounts[sku] = 0;
         for (let asin in db.asins) { let mSku = db.asins[asin].master; if (mSku && db.masters[mSku] !== undefined) linkedCounts[mSku] = (linkedCounts[mSku] || 0) + 1; }
 
         for (let sku in db.masters) {
             let count = linkedCounts[sku] || 0;
-            if (filterValue === "unmapped" && count > 0) continue;
             html += `<tr>
-                <td><strong>${sku}</strong></td><td>₹${db.purchasePrices[sku] || 0}</td>
+                <td><strong>${sku}</strong></td>
+                <td>₹ <input type="number" id="mst_price_${sku}" class="price-input" value="${db.purchasePrices[sku] || 0}" oninput="window.markEdit()" style="width: 80px;"></td>
                 <td>${count > 0 ? `<span class="badge-green">${count} Linked</span>` : `<span class="badge-red">0 Linked</span>`}</td>
                 <td style="font-size: 15px; font-weight: bold;">${db.masters[sku]}</td>
                 <td style="white-space: nowrap;">
-                    <button class="btn btn-small btn-info" onclick="window.editPurchasePrice('${sku}')">💲 Price</button>
                     <button class="btn btn-small btn-warning" onclick="window.renameMaster('${sku}')">✏️ Rename</button>
                     <button class="btn btn-small btn-danger" onclick="window.deleteMaster('${sku}')">🗑️ Del</button>
                 </td>
@@ -716,12 +802,6 @@
             tbody.innerHTML = html;
             setTimeout(() => window.buildTableFilters("tblMasterStock"), 50);
         }
-    };
-
-    window.editPurchasePrice = async function(sku) {
-        let db = getDB(); let oldPrice = db.purchasePrices[sku] || 0;
-        let newPrice = prompt(`Update Price for ${sku} (₹):\nCurrent: ₹${oldPrice}`, oldPrice);
-        if(newPrice !== null && !isNaN(newPrice) && newPrice.trim() !== "") { db.purchasePrices[sku] = parseFloat(newPrice); await saveDB(db); }
     };
 
     window.renameMaster = async function(oldSku) {
@@ -737,7 +817,6 @@
         if (db.locations[oldSku]) { db.locations[newSku] = db.locations[oldSku]; delete db.locations[oldSku]; }
         for (let asin in db.asins) { if (db.asins[asin].master === oldSku) db.asins[asin].master = newSku; }
         
-        // Migrate ledger history
         for(let date in db.ledger) { if(db.ledger[date][oldSku]) { db.ledger[date][newSku] = db.ledger[date][oldSku]; delete db.ledger[date][oldSku]; } }
         
         await saveDB(db);
@@ -750,17 +829,62 @@
     };
 
     // --- TAB 2: STOCK LOCATIONS ---
+    window.downloadLocationsTemplate = function() {
+        let db = getDB(); let dataToExport = [];
+        for (let sku in db.masters) {
+            let locs = db.locations[sku] || { rack: 0, wh: db.masters[sku], new: 0 };
+            dataToExport.push({
+                "Master SKU": sku,
+                "Rack Stock": locs.rack,
+                "Warehouse Stock": locs.wh,
+                "New Purchase Stock": locs.new
+            });
+        }
+        if (dataToExport.length === 0) return alert("No Master SKUs exist yet!");
+        let worksheet = XLSX.utils.json_to_sheet(dataToExport);
+        let workbook = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(workbook, worksheet, "Stock_Locations");
+        XLSX.writeFile(workbook, "Stock_Locations_Template.xlsx");
+    };
+
+    window.uploadLocationsExcel = function() {
+        let file = document.getElementById('locationsUploadFile').files[0];
+        if (!file) return alert("Select an Excel file first!");
+        let reader = new FileReader();
+        reader.onload = async function(e) {
+            let data = new Uint8Array(e.target.result); let workbook = XLSX.read(data, {type: 'array'});
+            let json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+            let db = getDB(); let count = 0;
+            json.forEach(rawRow => {
+                let row = normalizeRow(rawRow);
+                let sku = row["MASTER SKU"] || row["MASTERSKU"];
+                let rack = parseInt(row["RACK STOCK"] || row["RACK"] || 0);
+                let wh = parseInt(row["WAREHOUSE STOCK"] || row["WAREHOUSE"] || 0);
+                let newPurch = parseInt(row["NEW PURCHASE STOCK"] || row["NEW PURCHASE"] || row["NEW"] || 0);
+
+                if (sku) {
+                    sku = sku.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_");
+                    if (db.masters[sku] !== undefined) {
+                        db.locations[sku] = { rack: isNaN(rack)?0:rack, wh: isNaN(wh)?0:wh, new: isNaN(newPurch)?0:newPurch };
+                        db.masters[sku] = db.locations[sku].rack + db.locations[sku].wh + db.locations[sku].new;
+                        count++;
+                    }
+                }
+            });
+            await saveDB(db); document.getElementById('locationsUploadFile').value = ""; alert(`${count} Locations Updated!`);
+        }; reader.readAsArrayBuffer(file);
+    };
+
     window.renderLocationsTable = function() {
         let db = getDB(); let html = "";
         for (let sku in db.masters) {
             let locs = db.locations[sku] || { rack: 0, wh: db.masters[sku], new: 0 };
             html += `<tr>
                 <td><strong>${sku}</strong></td>
-                <td><input type="number" id="loc_rack_${sku}" class="price-input" value="${locs.rack}"></td>
-                <td><input type="number" id="loc_wh_${sku}" class="price-input" value="${locs.wh}"></td>
-                <td><input type="number" id="loc_new_${sku}" class="price-input" value="${locs.new}"></td>
+                <td><input type="number" id="loc_rack_${sku}" class="price-input" value="${locs.rack}" oninput="window.markEdit()"></td>
+                <td><input type="number" id="loc_wh_${sku}" class="price-input" value="${locs.wh}" oninput="window.markEdit()"></td>
+                <td><input type="number" id="loc_new_${sku}" class="price-input" value="${locs.new}" oninput="window.markEdit()"></td>
                 <td style="font-weight:bold; font-size:14px;">${db.masters[sku]}</td>
-                <td><button class="btn btn-small" onclick="window.saveLocations('${sku}')">Save Breakup</button></td>
+                <td><button class="btn btn-small" onclick="window.saveLocations('${sku}')">Save</button></td>
             </tr>`;
         }
         let tbody = document.getElementById("locationsTableBody"); 
@@ -778,6 +902,11 @@
         
         db.locations[sku] = { rack: r, wh: w, new: n };
         db.masters[sku] = r + w + n; 
+        
+        // Hide global bar if this is clicked manually and user might want partial save
+        window.hasUnsavedEdits = false;
+        document.getElementById('globalBulkActionBar').style.display = 'none';
+
         await saveDB(db);
     };
 
@@ -806,8 +935,8 @@
             html += `<tr><td style="text-align:center;"><input type="checkbox" class="asin-checkbox" value="${asin}"></td>
                 <td><span class="ref-sku">${data.sellerSku||"N/A"}</span></td><td><strong>${asin}</strong></td>
                 <td><span class="truncate" title="${data.title}">${data.title}</span></td>
-                <td><input type="text" id="map_master_${asin}" class="inline-input" value="${data.master}"></td>
-                <td><input type="number" id="map_pack_${asin}" class="inline-input price-input" value="${data.pack}" min="1"></td>
+                <td><input type="text" id="map_master_${asin}" class="inline-input" value="${data.master}" list="skuSuggestions" oninput="window.markEdit()"></td>
+                <td><input type="number" id="map_pack_${asin}" class="inline-input price-input" value="${data.pack}" min="1" oninput="window.markEdit()"></td>
                 <td style="white-space: nowrap;">${status} <br><br> <button class="btn btn-small" onclick="window.saveSingleMapping('${asin}')">Save</button></td></tr>`;
         }
         let tbody = document.getElementById("asinMappingTableBody"); 
@@ -882,6 +1011,10 @@
         let pack = parseInt(document.getElementById(`map_pack_${asin}`).value);
         let db = getDB(); db.asins[asin].master = master; db.asins[asin].pack = pack;
         if(db.masters[master] === undefined) { db.masters[master] = 0; db.locations[master] = { rack: 0, wh: 0, new: 0 }; }
+        
+        window.hasUnsavedEdits = false;
+        document.getElementById('globalBulkActionBar').style.display = 'none';
+
         await saveDB(db);
     };
 
@@ -926,7 +1059,6 @@
                 if(asin && ordered > 0) { 
                     asin = asin.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_"); 
                     
-                    // UNIQUE KEY LOGIC: OrderID + ASIN
                     let uniqueKey = orderId ? `${orderId}_${asin}` : `NO_ID_${Date.now()}_${Math.random()}`;
 
                     if (!processedOrders[uniqueKey]) {
@@ -937,7 +1069,6 @@
                             deductedStock[mapping.master] = (deductedStock[mapping.master] || 0) + totalQtyDeducted; 
                             totalDeductionsFound++; 
                             
-                            // Save detailed exact record
                             processedOrders[uniqueKey] = {
                                 date: todayDate,
                                 orderId: orderId || "N/A",
@@ -1017,7 +1148,7 @@
     window.resetSalesTrends = async function() {
         if(!confirm("Are you sure you want to erase all 3-Day Sales history? This will set all Day 1, 2, and 3 data to zero. Order History Ledger will NOT be deleted.")) return;
         let db = getDB();
-        db.sales = {}; // Clears the array for all masters
+        db.sales = {}; 
         await saveDB(db);
         alert("Sales Trends have been reset to zero.");
     };
@@ -1083,13 +1214,13 @@
             html += `<tr>
                 <td><strong>${sSku}</strong></td><td>${asin}</td><td style="color:#666;">${masterSku} <br><small>(Pack: ${packQty})</small></td>
                 <td style="font-weight:bold;">₹<span id="cost_${sSku}">${costPrice.toFixed(2)}</span></td>
-                <td><input type="number" id="amz_${sSku}" class="price-input" value="${pData.amzFee}" oninput="window.calcRow('${sSku}')"></td>
-                <td><input type="number" id="del_${sSku}" class="price-input" value="${pData.delFee}" oninput="window.calcRow('${sSku}')"></td>
-                <td><input type="number" id="pack_${sSku}" class="price-input" value="${pData.packFee}" oninput="window.calcRow('${sSku}')"></td>
+                <td><input type="number" id="amz_${sSku}" class="price-input" value="${pData.amzFee}" oninput="window.calcRow('${sSku}'); window.markEdit();"></td>
+                <td><input type="number" id="del_${sSku}" class="price-input" value="${pData.delFee}" oninput="window.calcRow('${sSku}'); window.markEdit();"></td>
+                <td><input type="number" id="pack_${sSku}" class="price-input" value="${pData.packFee}" oninput="window.calcRow('${sSku}'); window.markEdit();"></td>
                 <td class="highlight-col"><span style="font-size:11px; color:#555;">Misc: ₹<span id="minMisc_${sSku}">0</span></span><br><strong>₹<span id="minSelling_${sSku}">0.00</span></strong></td>
-                <td><input type="number" id="currSell_${sSku}" class="price-input" value="${pData.currSell}" oninput="window.calcRow('${sSku}')"></td>
+                <td><input type="number" id="currSell_${sSku}" class="price-input" value="${pData.currSell}" oninput="window.calcRow('${sSku}'); window.markEdit();"></td>
                 <td class="profit-col" id="currProfit_${sSku}">₹0</td>
-                <td><input type="number" id="desSell_${sSku}" class="price-input" value="${pData.desSell}" oninput="window.calcRow('${sSku}')"></td>
+                <td><input type="number" id="desSell_${sSku}" class="price-input" value="${pData.desSell}" oninput="window.calcRow('${sSku}'); window.markEdit();"></td>
                 <td class="profit-col" id="desProfit_${sSku}">₹0</td>
                 <td><button class="btn btn-small" onclick="window.savePricingRow('${sSku}')">Save</button></td>
             </tr>`;
@@ -1119,6 +1250,10 @@
     window.savePricingRow = async function(sSku) {
         let db = getDB(); if(db.pricingSKUs[sSku]) {
             db.pricingSKUs[sSku].amzFee = parseFloat(document.getElementById(`amz_${sSku}`).value)||0; db.pricingSKUs[sSku].delFee = parseFloat(document.getElementById(`del_${sSku}`).value)||0; db.pricingSKUs[sSku].packFee = parseFloat(document.getElementById(`pack_${sSku}`).value)||0; db.pricingSKUs[sSku].currSell = parseFloat(document.getElementById(`currSell_${sSku}`).value)||0; db.pricingSKUs[sSku].desSell = parseFloat(document.getElementById(`desSell_${sSku}`).value)||0;
+            
+            window.hasUnsavedEdits = false;
+            document.getElementById('globalBulkActionBar').style.display = 'none';
+
             await saveDB(db);
         }
     };
@@ -1160,11 +1295,9 @@
     window.renderOrderHistoryTable = function() {
         let db = getDB(); let html = "";
         
-        // Grab all detailed orders from processedOrders tracking and sort newest to oldest
         let allOrders = Object.values(db.processedOrders || {}).filter(item => typeof item === 'object');
         allOrders.sort((a, b) => new Date(b.date) - new Date(a.date));
 
-        // --- FILTERING LOGIC ---
         let filterSelect = document.getElementById("ledgerDateFilterType");
         let filterType = filterSelect ? filterSelect.value : "all";
         
@@ -1185,7 +1318,6 @@
                  allOrders = allOrders.filter(o => new Date(o.date) <= new Date(endDate));
             }
         }
-        // ------------------------
 
         for (let order of allOrders) {
             html += `<tr>
