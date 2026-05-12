@@ -87,6 +87,7 @@
         <button class="tablinks" onclick="window.openTab(event, 'SalesAlerts')">6. Sales Trends</button>
         <button class="tablinks" onclick="window.openTab(event, 'PricingSystem')" style="background-color: #e3f2fd; color: #0277bd;">7. Pricing System</button>
         <button class="tablinks" onclick="window.openTab(event, 'OrderHistory')" style="background-color: #e8f5e9;">8. Order History</button>
+        <button class="tablinks" onclick="window.openTab(event, 'StockTally')" style="background-color: #f3e5f5; color: #6a1b9a;">9. Stock Tally</button>
     </div>
 
     <div id="MasterStock" class="tabcontent" style="display:block;">
@@ -332,6 +333,53 @@
         </div>
     </div>
 
+    <div id="StockTally" class="tabcontent">
+        <h3>ASIN & Master SKU Stock Tally</h3>
+        <p style="color: #666; font-size: 13px;">Track total units purchased (added to stock) vs units sold (deducted via orders) for any date range.</p>
+        
+        <div class="section-box" style="display: flex; gap: 15px; align-items: flex-end; margin-bottom: 15px; background: #f3e5f5; border-color: #ce93d8;">
+            <div>
+                <label>Filter By Date:</label>
+                <select id="tallyDateFilterType" onchange="window.toggleTallyDateInputs()" style="margin-bottom: 0; width: 150px;">
+                    <option value="all">All Dates</option>
+                    <option value="exact">Exact Date</option>
+                    <option value="range">Date Range</option>
+                </select>
+            </div>
+            
+            <div id="tallyExactDateDiv" style="display: none;">
+                <label>Select Date:</label>
+                <input type="date" id="tallyExactDate" onchange="window.renderTallyTable()" style="margin-bottom: 0; width: 150px;">
+            </div>
+            
+            <div id="tallyRangeDateDiv" style="display: none; gap: 15px;">
+                <div>
+                    <label>Start Date:</label>
+                    <input type="date" id="tallyStartDate" onchange="window.renderTallyTable()" style="margin-bottom: 0; width: 150px;">
+                </div>
+                <div>
+                    <label>End Date:</label>
+                    <input type="date" id="tallyEndDate" onchange="window.renderTallyTable()" style="margin-bottom: 0; width: 150px;">
+                </div>
+            </div>
+        </div>
+
+        <div class="table-responsive">
+            <table id="tblStockTally">
+                <thead>
+                    <tr>
+                        <th>Master SKU</th>
+                        <th>Linked ASIN(s)</th>
+                        <th style="background-color:#d4edda; color:#155724;">Units Purchased (Added)</th>
+                        <th style="background-color:#f8d7da; color:#721c24;">Units Sold (Deducted)</th>
+                        <th style="background-color:#d1ecf1; color:#0c5460;">Net Difference</th>
+                    </tr>
+                </thead>
+                <tbody id="stockTallyTableBody"></tbody>
+            </table>
+        </div>
+    </div>
+
 </div>
 
 <script type="module">
@@ -356,6 +404,8 @@
 
     window.executeBulkSave = async function() {
         let db = getDB();
+        let today = new Date().toISOString().split('T')[0];
+        if(!db.purchaseHistory) db.purchaseHistory = [];
 
         // Save Master Prices
         document.querySelectorAll('input[id^="mst_price_"]').forEach(inp => {
@@ -363,14 +413,23 @@
             db.purchasePrices[sku] = parseFloat(inp.value) || 0;
         });
 
-        // Save Locations
+        // Save Locations & Log History Difference
         document.querySelectorAll('input[id^="loc_rack_"]').forEach(inp => {
             let sku = inp.id.replace('loc_rack_', '');
             let r = parseInt(document.getElementById(`loc_rack_${sku}`).value) || 0;
             let w = parseInt(document.getElementById(`loc_wh_${sku}`).value) || 0;
             let n = parseInt(document.getElementById(`loc_new_${sku}`).value) || 0;
+            
+            let newTotal = r + w + n;
+            let oldTotal = db.masters[sku] || 0;
+            let diff = newTotal - oldTotal;
+
             db.locations[sku] = { rack: r, wh: w, new: n };
-            db.masters[sku] = r + w + n; 
+            db.masters[sku] = newTotal; 
+
+            if (diff !== 0) {
+                db.purchaseHistory.push({ date: today, master: sku, qtyAdded: diff, action: 'bulk_edit' });
+            }
         });
 
         // Save ASIN Mapping
@@ -597,7 +656,7 @@
         evt.currentTarget.classList.add("active");
     };
 
-    window.cloudDB = { masters: {}, asins: {}, sales: {}, purchasePrices: {}, pricingSKUs: {}, processedOrders: {}, locations: {}, ledger: {} };
+    window.cloudDB = { masters: {}, asins: {}, sales: {}, purchasePrices: {}, pricingSKUs: {}, processedOrders: {}, purchaseHistory: [], locations: {}, ledger: {} };
     function getDB() { return JSON.parse(JSON.stringify(window.cloudDB)); }
 
     // --- FIREBASE SETUP ---
@@ -629,6 +688,7 @@
             window.cloudDB.purchasePrices = data.purchasePrices || {};
             window.cloudDB.pricingSKUs = data.pricingSKUs || {};
             window.cloudDB.processedOrders = data.processedOrders || {};
+            window.cloudDB.purchaseHistory = data.purchaseHistory || [];
             window.cloudDB.locations = data.locations || {};
             window.cloudDB.ledger = data.ledger || {};
 
@@ -670,6 +730,7 @@
         window.renderSalesAlertsTable();
         window.renderPricingTable(); 
         window.renderOrderHistoryTable();
+        window.renderTallyTable();
         window.updateSKUSuggestions();
     }
 
@@ -718,6 +779,10 @@
             let data = new Uint8Array(e.target.result); let workbook = XLSX.read(data, {type: 'array'});
             let json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
             let db = getDB(); let count = 0;
+            
+            if(!db.purchaseHistory) db.purchaseHistory = [];
+            let todayDate = new Date().toISOString().split('T')[0];
+
             json.forEach(rawRow => {
                 let row = normalizeRow(rawRow);
                 let sku = row["MASTER SKU"] || row["MASTERSKU"];
@@ -730,9 +795,16 @@
 
                 if (sku) {
                     sku = sku.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_");
-                    db.masters[sku] = rack + wh + newPurch; 
+                    let newTotal = rack + wh + newPurch;
+                    let diff = newTotal - (db.masters[sku] || 0);
+
+                    db.masters[sku] = newTotal; 
                     db.purchasePrices[sku] = isNaN(price) ? 0 : price;
                     db.locations[sku] = { rack: isNaN(rack)?0:rack, wh: isNaN(wh)?0:wh, new: isNaN(newPurch)?0:newPurch };
+                    
+                    if (diff !== 0) {
+                        db.purchaseHistory.push({ date: todayDate, master: sku, qtyAdded: diff, action: 'excel_sync' });
+                    }
                     count++;
                 }
             });
@@ -762,6 +834,8 @@
         let db = getDB();
         if(!db.locations[sku]) db.locations[sku] = { rack: 0, wh: 0, new: 0 };
         
+        let diff = action === "add" ? stockInput : (stockInput - (db.masters[sku] || 0));
+
         if (action === "add") { 
             db.masters[sku] = (db.masters[sku] || 0) + stockInput; 
         } else { 
@@ -774,6 +848,15 @@
         if(db.locations[sku]) {
             db.locations[sku].wh = db.masters[sku] - (db.locations[sku].rack || 0) - (db.locations[sku].new || 0);
         }
+
+        // Log Purchase Addition for the Tally Report
+        if(!db.purchaseHistory) db.purchaseHistory = [];
+        db.purchaseHistory.push({
+            date: new Date().toISOString().split('T')[0],
+            master: sku,
+            qtyAdded: diff,
+            action: action
+        });
 
         await saveDB(db);
 
@@ -807,12 +890,6 @@
         }
     };
 
-    window.editPurchasePrice = async function(sku) {
-        let db = getDB(); let oldPrice = db.purchasePrices[sku] || 0;
-        let newPrice = prompt(`Update Price for ${sku} (₹):\nCurrent: ₹${oldPrice}`, oldPrice);
-        if(newPrice !== null && !isNaN(newPrice) && newPrice.trim() !== "") { db.purchasePrices[sku] = parseFloat(newPrice); await saveDB(db); }
-    };
-
     window.renameMaster = async function(oldSku) {
         let newSku = prompt(`Rename Master SKU:\n\nEnter new name for "${oldSku}":`, oldSku);
         if (!newSku || newSku.trim() === "" || newSku.trim().toUpperCase() === oldSku) return;
@@ -825,15 +902,24 @@
         if (db.purchasePrices[oldSku]) { db.purchasePrices[newSku] = db.purchasePrices[oldSku]; delete db.purchasePrices[oldSku]; }
         if (db.locations[oldSku]) { db.locations[newSku] = db.locations[oldSku]; delete db.locations[oldSku]; }
         for (let asin in db.asins) { if (db.asins[asin].master === oldSku) db.asins[asin].master = newSku; }
+        for (let date in db.ledger) { if(db.ledger[date][oldSku]) { db.ledger[date][newSku] = db.ledger[date][oldSku]; delete db.ledger[date][oldSku]; } }
         
-        for(let date in db.ledger) { if(db.ledger[date][oldSku]) { db.ledger[date][newSku] = db.ledger[date][oldSku]; delete db.ledger[date][oldSku]; } }
-        
+        // Migrate purchase history
+        if(db.purchaseHistory) {
+            db.purchaseHistory.forEach(p => { if(p.master === oldSku) p.master = newSku; });
+        }
+
         await saveDB(db);
     };
 
     window.deleteMaster = async function(sku) {
         if(!confirm(`Delete Master SKU: ${sku}?`)) return;
         let db = getDB(); delete db.masters[sku]; delete db.sales[sku]; delete db.purchasePrices[sku]; delete db.locations[sku];
+        
+        if(db.purchaseHistory) {
+            db.purchaseHistory = db.purchaseHistory.filter(p => p.master !== sku);
+        }
+
         await saveDB(db);
     };
 
@@ -863,6 +949,9 @@
             let data = new Uint8Array(e.target.result); let workbook = XLSX.read(data, {type: 'array'});
             let json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
             let db = getDB(); let count = 0;
+            if(!db.purchaseHistory) db.purchaseHistory = [];
+            let todayDate = new Date().toISOString().split('T')[0];
+
             json.forEach(rawRow => {
                 let row = normalizeRow(rawRow);
                 let sku = row["MASTER SKU"] || row["MASTERSKU"];
@@ -873,8 +962,15 @@
                 if (sku) {
                     sku = sku.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_");
                     if (db.masters[sku] !== undefined) {
+                        let newTotal = (isNaN(rack)?0:rack) + (isNaN(wh)?0:wh) + (isNaN(newPurch)?0:newPurch);
+                        let diff = newTotal - (db.masters[sku] || 0);
+
                         db.locations[sku] = { rack: isNaN(rack)?0:rack, wh: isNaN(wh)?0:wh, new: isNaN(newPurch)?0:newPurch };
-                        db.masters[sku] = db.locations[sku].rack + db.locations[sku].wh + db.locations[sku].new;
+                        db.masters[sku] = newTotal;
+                        
+                        if (diff !== 0) {
+                            db.purchaseHistory.push({ date: todayDate, master: sku, qtyAdded: diff, action: 'location_excel' });
+                        }
                         count++;
                     }
                 }
@@ -909,10 +1005,18 @@
         let w = parseInt(document.getElementById(`loc_wh_${sku}`).value) || 0;
         let n = parseInt(document.getElementById(`loc_new_${sku}`).value) || 0;
         
+        let newTotal = r + w + n;
+        let oldTotal = db.masters[sku] || 0;
+        let diff = newTotal - oldTotal;
+
         db.locations[sku] = { rack: r, wh: w, new: n };
-        db.masters[sku] = r + w + n; 
+        db.masters[sku] = newTotal; 
         
-        // Hide global bar if this is clicked manually and user might want partial save
+        if(!db.purchaseHistory) db.purchaseHistory = [];
+        if (diff !== 0) {
+            db.purchaseHistory.push({ date: new Date().toISOString().split('T')[0], master: sku, qtyAdded: diff, action: 'location_edit' });
+        }
+        
         window.hasUnsavedEdits = false;
         document.getElementById('globalBulkActionBar').style.display = 'none';
 
@@ -1358,6 +1462,92 @@
         if(tbody) {
             tbody.innerHTML = html || "<tr><td colspan='5' style='text-align:center;'>No orders found for selected dates.</td></tr>";
             setTimeout(() => window.buildTableFilters("tblOrderHistory"), 50);
+        }
+    };
+
+    // --- TAB 9: STOCK TALLY COUNTER ---
+    window.toggleTallyDateInputs = function() {
+        let filterType = document.getElementById("tallyDateFilterType").value;
+        document.getElementById("tallyExactDateDiv").style.display = filterType === "exact" ? "block" : "none";
+        document.getElementById("tallyRangeDateDiv").style.display = filterType === "range" ? "flex" : "none";
+        window.renderTallyTable(); 
+    };
+
+    window.renderTallyTable = function() {
+        let db = getDB(); 
+        let html = "";
+        
+        let filterSelect = document.getElementById("tallyDateFilterType");
+        let filterType = filterSelect ? filterSelect.value : "all";
+        let exactDate = document.getElementById("tallyExactDate").value;
+        let startDate = document.getElementById("tallyStartDate").value;
+        let endDate = document.getElementById("tallyEndDate").value;
+
+        // Helper to check if a date falls in user's selection
+        function isDateInRange(d) {
+            if (!d) return false;
+            let dateObj = new Date(d);
+            if (filterType === "exact") return d === exactDate;
+            if (filterType === "range") {
+                if (startDate && endDate) return dateObj >= new Date(startDate) && dateObj <= new Date(endDate);
+                if (startDate) return dateObj >= new Date(startDate);
+                if (endDate) return dateObj <= new Date(endDate);
+            }
+            return true; // "all"
+        }
+
+        // 1. Tally Sales (from processedOrders)
+        let salesTally = {}; 
+        let asinBreakdown = {}; 
+        Object.values(db.processedOrders || {}).forEach(order => {
+            if (typeof order === 'object' && isDateInRange(order.date)) {
+                let mSku = order.master;
+                salesTally[mSku] = (salesTally[mSku] || 0) + (order.qty || 0);
+                if(!asinBreakdown[mSku]) asinBreakdown[mSku] = new Set();
+                asinBreakdown[mSku].add(order.asin);
+            }
+        });
+
+        // 2. Tally Purchases (from purchaseHistory ledger)
+        let purchaseTally = {};
+        (db.purchaseHistory || []).forEach(record => {
+            if (isDateInRange(record.date)) {
+                let mSku = record.master;
+                purchaseTally[mSku] = (purchaseTally[mSku] || 0) + (record.qtyAdded || 0);
+            }
+        });
+
+        // Combine all unique Master SKUs that have activity in this period
+        let activeMasters = new Set([...Object.keys(salesTally), ...Object.keys(purchaseTally)]);
+
+        for (let mSku of activeMasters) {
+            let purchased = purchaseTally[mSku] || 0;
+            let sold = salesTally[mSku] || 0;
+            let diff = purchased - sold;
+            
+            // Collect all ASINs linked to this Master SKU to make it searchable
+            let linkedAsins = [];
+            for (let a in db.asins) {
+                if (db.asins[a].master === mSku) linkedAsins.push(a);
+            }
+            // If none linked currently, show the ones we historically sold
+            if (linkedAsins.length === 0 && asinBreakdown[mSku]) linkedAsins = Array.from(asinBreakdown[mSku]);
+            
+            let asinDisplay = linkedAsins.join(", ") || "None";
+
+            html += `<tr>
+                <td><strong>${mSku}</strong></td>
+                <td style="font-size: 11px; max-width: 250px; word-wrap: break-word; color: #555;">${asinDisplay}</td>
+                <td style="color:green; font-weight:bold; font-size: 14px;">+${purchased}</td>
+                <td style="color:red; font-weight:bold; font-size: 14px;">-${sold}</td>
+                <td style="font-weight:bold; font-size: 14px; color: ${diff > 0 ? '#007bff' : (diff < 0 ? '#d32f2f' : 'black')}">${diff > 0 ? '+'+diff : diff}</td>
+            </tr>`;
+        }
+
+        let tbody = document.getElementById("stockTallyTableBody"); 
+        if(tbody) {
+            tbody.innerHTML = html || "<tr><td colspan='5' style='text-align:center;'>No purchase or sales activity found for the selected dates.</td></tr>";
+            setTimeout(() => window.buildTableFilters("tblStockTally"), 50);
         }
     };
 </script>
