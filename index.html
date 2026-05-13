@@ -732,7 +732,8 @@
     function normalizeRow(row) { let newRow = {}; for (let key in row) { newRow[key.toString().trim().toUpperCase()] = row[key]; } return newRow; }
     function extractASIN(row) { return row["(CHILD) ASIN"] || row["CHILD ASIN"] || row["ASIN1"] || row["ASIN"] || null; }
     function extractQuantity(row) { return parseInt((row["QUANTITY"] !== undefined ? row["QUANTITY"] : row["QTY"]) || 0); }
-    function extractOrders(row) { return parseInt((row["UNITS ORDERED"] !== undefined ? row["UNITS ORDERED"] : row["ORDERED"]) || 0); }
+    // APPLIED FIX HERE
+    function extractOrders(row) { return parseInt(row["QUANTITY-PURCHASED"] || row["UNITS ORDERED"] || row["ORDERED"] || 0); }
     function extractSellerSKU(row) { return row["SELLER-SKU"] || row["SKU"] || row["MERCHANT SKU"] || null; }
     function extractPrice(row) { return parseFloat(row["PRICE"] || row["YOUR PRICE"] || 0); }
     function extractOrderID(row) { return row["AMAZON-ORDER-ID"] || row["ORDER ID"] || row["ORDER-ID"] || row["ORDERID"] || null; }
