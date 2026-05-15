@@ -35,7 +35,6 @@
         .btn-info { background-color: #17a2b8; }
         .btn-dark { background-color: #343a40; color: white; }
         
-        /* Ensure dropdowns can spill over table boundaries */
         .table-responsive { overflow-x: auto; min-height: 400px; padding-bottom: 50px; }
         table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 13px; min-width: 1000px; }
         table, th, td { border: 1px solid #ddd; }
@@ -131,6 +130,33 @@
             <button class="btn" onclick="window.saveMasterStock()">Update Warehouse DB</button>
             <span id="stockSuccessMsg" style="color: #28a745; font-weight: bold; margin-left: 15px; display: none;">✔️ Stock Updated!</span>
             <p style="font-size: 11px; color: gray;">*Note: Adjusting total stock here will automatically balance your 'Warehouse' bucket in the Locations tab.</p>
+        </div>
+
+        <div class="section-box" style="background-color: #e3f2fd; border-color: #90caf9;">
+            <div style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;" onclick="document.getElementById('groupingToolBody').style.display = document.getElementById('groupingToolBody').style.display === 'none' ? 'block' : 'none'">
+                <h4 style="margin: 0; color: #0277bd;">🔗 Manual SKU Grouping (Parent/Child Colors) ▼</h4>
+            </div>
+            
+            <div id="groupingToolBody" style="display: none; margin-top: 15px;">
+                <p style="font-size: 12px; color: #555;">Select a Parent (e.g., MULTI) and link specific Color SKUs to it. This allows the system to calculate your actual physical stock when random colors are sold.</p>
+                <div style="display: flex; gap: 15px; margin-bottom: 15px;">
+                    <div style="flex: 1;">
+                        <label>1. Select Parent (Main) SKU:</label>
+                        <select id="groupParentSku" style="height: 35px;"></select>
+                    </div>
+                    <div style="flex: 2;">
+                        <label>2. Select Child (Color) SKUs (Hold Ctrl/Cmd to select multiple):</label>
+                        <select id="groupChildSkus" multiple style="height: 120px;"></select>
+                    </div>
+                </div>
+                <button class="btn btn-info" onclick="window.saveSkuGroup()">💾 Link Selected SKUs</button>
+                
+                <div style="margin-top: 20px; border-top: 1px dashed #90caf9; padding-top: 15px;">
+                    <h5 style="margin-top: 0; color: #0277bd;">Manage Existing Groups</h5>
+                    <div id="existingGroupsList" style="font-size: 13px;">
+                        </div>
+                </div>
+            </div>
         </div>
 
         <div class="table-responsive">
@@ -271,7 +297,7 @@
                         <th>Master SKU (Auto)</th>
                         <th>Cost Price (₹)</th>
                         <th>Amz Fee</th>
-                        <th>Del. Fee</th>
+                        <th>Del Fee</th>
                         <th>Pack Fee</th>
                         <th class="highlight-col">Min Selling Price</th>
                         <th>Current Sell</th>
@@ -484,7 +510,7 @@
                 if (cell) {
                     let text = cell.innerText || cell.textContent;
                     let input = cell.querySelector("input");
-                    if(input && input.type !== "checkbox") text += " " + input.value; // capture editable fields
+                    if(input && input.type !== "checkbox") text += " " + input.value; 
                     text = text.trim();
                     if (text && text !== "Save" && text !== "Save Breakup" && text !== "💲 Price" && text !== "✏️ Rename" && text !== "🗑️ Del") uniqueVals.add(text);
                 }
@@ -650,7 +676,7 @@
         evt.currentTarget.classList.add("active");
     };
 
-    window.cloudDB = { masters: {}, asins: {}, sales: {}, purchasePrices: {}, pricingSKUs: {}, processedOrders: {}, purchaseHistory: [], locations: {}, ledger: {} };
+    window.cloudDB = { masters: {}, asins: {}, sales: {}, purchasePrices: {}, pricingSKUs: {}, processedOrders: {}, purchaseHistory: [], locations: {}, ledger: {}, skuGroups: {} };
     function getDB() { return JSON.parse(JSON.stringify(window.cloudDB)); }
 
     // --- FIREBASE SETUP ---
@@ -685,6 +711,7 @@
             window.cloudDB.purchaseHistory = data.purchaseHistory || [];
             window.cloudDB.locations = data.locations || {};
             window.cloudDB.ledger = data.ledger || {};
+            window.cloudDB.skuGroups = data.skuGroups || {}; // ADDED FOR MANUAL GROUPING
 
             for(let sku in window.cloudDB.masters) {
                 if(!window.cloudDB.locations[sku]) {
@@ -726,6 +753,8 @@
         window.renderOrderHistoryTable();
         window.renderTallyTable();
         window.updateSKUSuggestions();
+        window.populateGroupDropdowns(); // Update manual grouping dropdowns
+        window.renderExistingGroups();   // Render the list of groups
     }
 
     // UTILS
@@ -736,6 +765,116 @@
     function extractSellerSKU(row) { return row["SELLER-SKU"] || row["SKU"] || row["MERCHANT SKU"] || null; }
     function extractPrice(row) { return parseFloat(row["PRICE"] || row["YOUR PRICE"] || 0); }
     function extractOrderID(row) { return row["AMAZON-ORDER-ID"] || row["ORDER ID"] || row["ORDER-ID"] || row["ORDERID"] || null; }
+
+    // --- NEW: MANUAL SKU GROUPING LOGIC ---
+    window.populateGroupDropdowns = function() {
+        let db = getDB();
+        let parentSelect = document.getElementById("groupParentSku");
+        let childSelect = document.getElementById("groupChildSkus");
+        if(!parentSelect || !childSelect) return;
+        
+        // Preserve current selections if possible
+        let currParent = parentSelect.value;
+        let currChildren = Array.from(childSelect.selectedOptions).map(o => o.value);
+
+        let parentHtml = "<option value=''>-- Select Parent SKU --</option>";
+        let childHtml = "";
+        
+        let allSkus = Object.keys(db.masters).sort();
+        
+        for (let sku of allSkus) {
+            parentHtml += `<option value="${sku}">${sku}</option>`;
+            childHtml += `<option value="${sku}">${sku}</option>`;
+        }
+        
+        parentSelect.innerHTML = parentHtml;
+        childSelect.innerHTML = childHtml;
+        
+        if(currParent && db.masters[currParent] !== undefined) parentSelect.value = currParent;
+        Array.from(childSelect.options).forEach(opt => {
+            if(currChildren.includes(opt.value)) opt.selected = true;
+        });
+    };
+
+    window.saveSkuGroup = async function() {
+        let parent = document.getElementById("groupParentSku").value;
+        let childOptions = document.getElementById("groupChildSkus").selectedOptions;
+        
+        if (!parent) return alert("Please select a Parent SKU.");
+        if (childOptions.length === 0) return alert("Please select at least one Child SKU.");
+
+        let children = Array.from(childOptions).map(opt => opt.value).filter(val => val !== parent); // Prevent mapping to itself
+
+        let db = getDB();
+        if(!db.skuGroups) db.skuGroups = {};
+        
+        // If parent already has a group, append the new children, don't overwrite completely
+        let existingChildren = db.skuGroups[parent] || [];
+        let newGroup = Array.from(new Set([...existingChildren, ...children])); // Merge & Remove duplicates
+        
+        db.skuGroups[parent] = newGroup;
+        
+        await saveDB(db);
+        
+        // Reset selections
+        document.getElementById("groupParentSku").value = "";
+        Array.from(document.getElementById("groupChildSkus").options).forEach(opt => opt.selected = false);
+        
+        alert(`Successfully linked colors to ${parent}!`);
+    };
+
+    window.renderExistingGroups = function() {
+        let db = getDB();
+        let container = document.getElementById("existingGroupsList");
+        if(!container) return;
+        
+        if(!db.skuGroups || Object.keys(db.skuGroups).length === 0) {
+            container.innerHTML = "<div style='color: #888;'>No groups created yet.</div>";
+            return;
+        }
+
+        let html = "";
+        for(let parent in db.skuGroups) {
+            let children = db.skuGroups[parent];
+            if(children.length === 0) continue;
+            
+            let childTags = children.map(c => `
+                <span style="display:inline-block; background:#e9ecef; border:1px solid #ced4da; padding:2px 6px; border-radius:12px; margin:2px 4px 2px 0;">
+                    ${c} <span style="color:#dc3545; cursor:pointer; font-weight:bold; padding-left:4px;" onclick="window.removeGroupChild('${parent}', '${c}')" title="Remove this SKU from group">×</span>
+                </span>
+            `).join("");
+
+            html += `
+                <div style="background: #fff; padding: 10px; border: 1px solid #b8daff; border-radius: 4px; margin-bottom: 10px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                        <strong style="color: #0056b3;">${parent}</strong>
+                        <button class="btn btn-danger btn-small" onclick="window.deleteEntireGroup('${parent}')">🗑️ Delete Group</button>
+                    </div>
+                    <div>${childTags}</div>
+                </div>
+            `;
+        }
+        container.innerHTML = html;
+    };
+
+    window.removeGroupChild = async function(parent, child) {
+        if(!confirm(`Remove ${child} from ${parent}'s group?`)) return;
+        let db = getDB();
+        if(db.skuGroups && db.skuGroups[parent]) {
+            db.skuGroups[parent] = db.skuGroups[parent].filter(c => c !== child);
+            if(db.skuGroups[parent].length === 0) delete db.skuGroups[parent];
+            await saveDB(db);
+        }
+    };
+
+    window.deleteEntireGroup = async function(parent) {
+        if(!confirm(`Are you sure you want to delete the group for ${parent}? The physical stock will not be deleted, just the grouping relation.`)) return;
+        let db = getDB();
+        if(db.skuGroups && db.skuGroups[parent]) {
+            delete db.skuGroups[parent];
+            await saveDB(db);
+        }
+    };
 
     // --- TAB 1: MASTER STOCK & BACKUPS ---
     window.downloadBackup = function() {
@@ -866,11 +1005,38 @@
 
         for (let sku in db.masters) {
             let count = linkedCounts[sku] || 0;
+            
+            // --- NEW: MANUAL GROUPING RENDER LOGIC ---
+            let isChildOf = null;
+            if(db.skuGroups) {
+                for(let p in db.skuGroups) { if(db.skuGroups[p].includes(sku)) isChildOf = p; }
+            }
+
+            let groupDisplay = "";
+            let isParent = db.skuGroups && db.skuGroups[sku] && db.skuGroups[sku].length > 0;
+            if (isParent) {
+                let children = db.skuGroups[sku];
+                let childrenStockSum = 0;
+                children.forEach(c => childrenStockSum += (db.masters[c] || 0)); // Safe fallback if child master deleted
+                
+                let unallocatedSales = db.masters[sku] || 0; 
+                let truePhysicalStock = childrenStockSum + unallocatedSales;
+
+                groupDisplay = `
+                    <div style="margin-top: 6px; font-size: 11px; background-color: #fff3cd; padding: 6px; border: 1px solid #ffeeba; border-left: 3px solid #ffc107; border-radius: 4px;">
+                        <div style="color: #856404; margin-bottom: 2px;"><b>True Combined Stock:</b> <span style="font-size:13px;">${truePhysicalStock}</span></div>
+                        <div style="color: #666;">(Color Sum: ${childrenStockSum} | Unallocated Multi Sales: ${unallocatedSales})</div>
+                    </div>`;
+            }
+            
+            let childDisplay = isChildOf ? `<div style="font-size: 11px; color: #17a2b8; margin-top: 4px;">↳ Part of: <b>${isChildOf}</b></div>` : "";
+            // -------------------------------------
+
             html += `<tr>
-                <td><strong>${sku}</strong></td>
+                <td><strong>${sku}</strong> ${childDisplay} ${groupDisplay}</td>
                 <td>₹${db.purchasePrices[sku] || 0}</td>
                 <td>${count > 0 ? `<span class="badge-green">${count} Linked</span>` : `<span class="badge-red">0 Linked</span>`}</td>
-                <td style="font-size: 15px; font-weight: bold;">${db.masters[sku]}</td>
+                <td style="font-size: 15px; font-weight: bold; ${isChildOf ? 'color:#17a2b8;' : ''}">${db.masters[sku]}</td>
                 <td style="white-space: nowrap;">
                     <button class="btn btn-small btn-info" onclick="window.editPurchasePrice('${sku}')">💲 Price</button>
                     <button class="btn btn-small btn-warning" onclick="window.renameMaster('${sku}')">✏️ Rename</button>
@@ -913,6 +1079,22 @@
             db.purchaseHistory.forEach(p => { if(p.master === oldSku) p.master = newSku; });
         }
 
+        // --- Migrate SKU Groups ---
+        if(db.skuGroups) {
+            // If oldSku was a parent, rename its key
+            if(db.skuGroups[oldSku]) {
+                db.skuGroups[newSku] = db.skuGroups[oldSku];
+                delete db.skuGroups[oldSku];
+            }
+            // If oldSku was a child, find it and replace it in the array
+            for(let p in db.skuGroups) {
+                let idx = db.skuGroups[p].indexOf(oldSku);
+                if(idx !== -1) {
+                    db.skuGroups[p][idx] = newSku;
+                }
+            }
+        }
+
         await saveDB(db);
     };
 
@@ -922,6 +1104,15 @@
         
         if(db.purchaseHistory) {
             db.purchaseHistory = db.purchaseHistory.filter(p => p.master !== sku);
+        }
+
+        // --- Cleanup SKU Groups ---
+        if(db.skuGroups) {
+            if(db.skuGroups[sku]) delete db.skuGroups[sku]; // Delete if it was a parent
+            for(let p in db.skuGroups) {
+                db.skuGroups[p] = db.skuGroups[p].filter(c => c !== sku); // Remove if it was a child
+                if(db.skuGroups[p].length === 0) delete db.skuGroups[p];
+            }
         }
 
         await saveDB(db);
