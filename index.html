@@ -236,8 +236,16 @@
     <div id="OrderProcessing" class="tabcontent">
         <h3>Process Daily Orders & Deduct Stock</h3>
         <div class="section-box">
-            <label>Upload Daily Sales / Business Report (.csv or .txt):</label>
-            <input type="file" id="dailyOrderFile" accept=".csv, .xlsx, .txt">
+            <div style="display: flex; gap: 15px; margin-bottom: 15px; align-items: flex-end;">
+                <div style="flex: 1;">
+                    <label>Processing Date <span style="color:red">*</span>:</label>
+                    <input type="date" id="orderProcessDate" style="margin-bottom: 0;" required>
+                </div>
+                <div style="flex: 2;">
+                    <label>Upload Daily Sales / Business Report (.csv or .txt):</label>
+                    <input type="file" id="dailyOrderFile" accept=".csv, .xlsx, .txt" style="margin-bottom: 0;">
+                </div>
+            </div>
             
             <div class="action-bar">
                 <button class="btn" onclick="window.processOrderFile()">Process Orders & Sync to Cloud</button>
@@ -512,7 +520,10 @@
                     let input = cell.querySelector("input");
                     if(input && input.type !== "checkbox") text += " " + input.value; 
                     text = text.trim();
-                    if (text && text !== "Save" && text !== "Save Breakup" && text !== "💲 Price" && text !== "✏️ Rename" && text !== "🗑️ Del") uniqueVals.add(text);
+                    if (text && text !== "Save" && text !== "Save Breakup" && text !== "💲 Price" && text !== "✏️ Rename" && text !== "🗑️ Del" && text !== "▼" && text !== "▶") {
+                        // Strip out the arrow characters if they get caught in the text extraction
+                        uniqueVals.add(text.replace(/[▶▼]/g, '').trim());
+                    }
                 }
             });
             colValues[colIndex] = Array.from(uniqueVals).sort();
@@ -559,6 +570,7 @@
             let isColFiltered = savedFilters[index] !== undefined;
 
             colValues[index].forEach(val => {
+                if(!val) return;
                 let label = document.createElement("label");
                 label.title = val; 
                 let isChecked = isColFiltered && savedFilters[index].includes(val) ? 'checked' : '';
@@ -652,7 +664,7 @@
                     let text = cell.innerText || cell.textContent;
                     let input = cell.querySelector("input");
                     if(input && input.type !== "checkbox") text += " " + input.value;
-                    text = text.trim();
+                    text = text.replace(/[▶▼]/g, '').trim();
                     
                     if (!activeFilters[colIndex].includes(text)) {
                         show = false;
@@ -997,27 +1009,50 @@
         let msg = document.getElementById("stockSuccessMsg"); msg.style.display = "inline-block"; msg.classList.remove("fade-out"); void msg.offsetWidth; msg.classList.add("fade-out");
     };
 
+    // --- ACCORDION TOGGLE LOGIC ---
+    window.toggleChildRows = function(parentSafeId, btnRef) {
+        let rows = document.querySelectorAll(`.child-of-${parentSafeId}`);
+        let isExpanded = btnRef.innerText === "▼";
+        
+        rows.forEach(row => {
+            if (isExpanded) {
+                row.style.display = "none";
+            } else {
+                row.style.display = ""; 
+            }
+        });
+        
+        btnRef.innerText = isExpanded ? "▶" : "▼";
+    };
+
+    // --- NEW: RENDER MASTER STOCK TABLE (WITH ACCORDION) ---
     window.renderMasterStockTable = function() {
         let db = getDB(); let html = "";
         let linkedCounts = {};
         for (let sku in db.masters) linkedCounts[sku] = 0;
         for (let asin in db.asins) { let mSku = db.asins[asin].master; if (mSku && db.masters[mSku] !== undefined) linkedCounts[mSku] = (linkedCounts[mSku] || 0) + 1; }
 
-        for (let sku in db.masters) {
-            let count = linkedCounts[sku] || 0;
-            
-            // --- NEW: MANUAL GROUPING RENDER LOGIC ---
-            let isChildOf = null;
-            if(db.skuGroups) {
-                for(let p in db.skuGroups) { if(db.skuGroups[p].includes(sku)) isChildOf = p; }
+        // Find all children so we don't render them twice
+        let allChildren = new Set();
+        if(db.skuGroups) {
+            for(let p in db.skuGroups) {
+                db.skuGroups[p].forEach(c => allChildren.add(c));
             }
+        }
 
+        function generateRowHtml(sku, isChildOf = null, isParent = false) {
+            let count = linkedCounts[sku] || 0;
             let groupDisplay = "";
-            let isParent = db.skuGroups && db.skuGroups[sku] && db.skuGroups[sku].length > 0;
+            let toggleBtn = "";
+            let safeId = sku.replace(/[^a-zA-Z0-9]/g, '_');
+            
+            let trClass = isChildOf ? `child-of-${isChildOf.replace(/[^a-zA-Z0-9]/g, '_')}` : `parent-row`;
+            let trStyle = isChildOf ? `display: none; background-color: #fdfdfd;` : ``;
+            
             if (isParent) {
                 let children = db.skuGroups[sku];
                 let childrenStockSum = 0;
-                children.forEach(c => childrenStockSum += (db.masters[c] || 0)); // Safe fallback if child master deleted
+                children.forEach(c => childrenStockSum += (db.masters[c] || 0));
                 
                 let unallocatedSales = db.masters[sku] || 0; 
                 let truePhysicalStock = childrenStockSum + unallocatedSales;
@@ -1027,13 +1062,22 @@
                         <div style="color: #856404; margin-bottom: 2px;"><b>True Combined Stock:</b> <span style="font-size:13px;">${truePhysicalStock}</span></div>
                         <div style="color: #666;">(Color Sum: ${childrenStockSum} | Unallocated Multi Sales: ${unallocatedSales})</div>
                     </div>`;
+                    
+                toggleBtn = `<button class="btn-small" style="background:#007bff; color:white; border:none; border-radius:3px; cursor:pointer; margin-right:8px; padding: 2px 6px;" onclick="window.toggleChildRows('${safeId}', this)">▶</button>`;
             }
             
             let childDisplay = isChildOf ? `<div style="font-size: 11px; color: #17a2b8; margin-top: 4px;">↳ Part of: <b>${isChildOf}</b></div>` : "";
-            // -------------------------------------
+            let indentStyle = isChildOf ? `padding-left: 35px; border-left: 3px solid #17a2b8;` : ``;
 
-            html += `<tr>
-                <td><strong>${sku}</strong> ${childDisplay} ${groupDisplay}</td>
+            return `<tr class="${trClass}" style="${trStyle}">
+                <td style="${indentStyle}">
+                    <div style="display:flex; align-items:flex-start;">
+                        ${toggleBtn}
+                        <div>
+                            <strong>${sku}</strong> ${childDisplay} ${groupDisplay}
+                        </div>
+                    </div>
+                </td>
                 <td>₹${db.purchasePrices[sku] || 0}</td>
                 <td>${count > 0 ? `<span class="badge-green">${count} Linked</span>` : `<span class="badge-red">0 Linked</span>`}</td>
                 <td style="font-size: 15px; font-weight: bold; ${isChildOf ? 'color:#17a2b8;' : ''}">${db.masters[sku]}</td>
@@ -1044,6 +1088,28 @@
                 </td>
             </tr>`;
         }
+
+        // 1. Render Parents first, and their specific children immediately below them
+        let renderedParents = new Set();
+        for (let sku in db.masters) {
+            if (db.skuGroups && db.skuGroups[sku] && db.skuGroups[sku].length > 0) {
+                html += generateRowHtml(sku, null, true);
+                db.skuGroups[sku].forEach(childSku => {
+                    if(db.masters[childSku] !== undefined) {
+                        html += generateRowHtml(childSku, sku, false);
+                    }
+                });
+                renderedParents.add(sku);
+            }
+        }
+
+        // 2. Render all remaining standalone SKUs
+        for (let sku in db.masters) {
+            if (!renderedParents.has(sku) && !allChildren.has(sku)) {
+                html += generateRowHtml(sku, null, false);
+            }
+        }
+
         let tbody = document.getElementById("masterStockTableBody"); 
         if(tbody) {
             tbody.innerHTML = html;
@@ -1350,7 +1416,11 @@
 
     // --- TAB 5: DAILY ORDERS & DIRECT LEDGER UPDATE ---
     window.processOrderFile = function() {
+        let dateInput = document.getElementById('orderProcessDate').value;
+        if (!dateInput) return alert("⚠️ Please select a Processing Date first!");
+
         let file = document.getElementById('dailyOrderFile').files[0]; if(!file) return alert("Select Business/Order file!");
+        
         let reader = new FileReader();
         reader.onload = async function(e) {
             let data = new Uint8Array(e.target.result); let workbook = XLSX.read(data, {type: 'array'});
@@ -1359,7 +1429,7 @@
             let deductedStock = {}; let totalDeductionsFound = 0;
             let processedOrders = db.processedOrders || {}; 
             
-            let todayDate = new Date().toISOString().split('T')[0]; 
+            let todayDate = dateInput; // NEW: Uses explicitly selected date
 
             json.forEach(rawRow => {
                 let row = normalizeRow(rawRow); let asin = extractASIN(row); let ordered = extractOrders(row); let orderId = extractOrderID(row); 
