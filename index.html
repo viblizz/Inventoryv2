@@ -1025,7 +1025,7 @@
         btnRef.innerText = isExpanded ? "▶" : "▼";
     };
 
-    // --- NEW: RENDER MASTER STOCK TABLE (WITH ACCORDION) ---
+    // --- NEW: RENDER MASTER STOCK TABLE (WITH ACCORDION & SORTING) ---
     window.renderMasterStockTable = function() {
         let db = getDB(); let html = "";
         let linkedCounts = {};
@@ -1049,6 +1049,8 @@
             let trClass = isChildOf ? `child-of-${isChildOf.replace(/[^a-zA-Z0-9]/g, '_')}` : `parent-row`;
             let trStyle = isChildOf ? `display: none; background-color: #fdfdfd;` : ``;
             
+            let displayStock = db.masters[sku]; // Default to standard stock
+            
             if (isParent) {
                 let children = db.skuGroups[sku];
                 let childrenStockSum = 0;
@@ -1056,6 +1058,8 @@
                 
                 let unallocatedSales = db.masters[sku] || 0; 
                 let truePhysicalStock = childrenStockSum + unallocatedSales;
+                
+                displayStock = truePhysicalStock; // Override the main column display for Parents
 
                 groupDisplay = `
                     <div style="margin-top: 6px; font-size: 11px; background-color: #fff3cd; padding: 6px; border: 1px solid #ffeeba; border-left: 3px solid #ffc107; border-radius: 4px;">
@@ -1080,7 +1084,7 @@
                 </td>
                 <td>₹${db.purchasePrices[sku] || 0}</td>
                 <td>${count > 0 ? `<span class="badge-green">${count} Linked</span>` : `<span class="badge-red">0 Linked</span>`}</td>
-                <td style="font-size: 15px; font-weight: bold; ${isChildOf ? 'color:#17a2b8;' : ''}">${db.masters[sku]}</td>
+                <td style="font-size: 15px; font-weight: bold; ${isChildOf ? 'color:#17a2b8;' : ''}">${displayStock}</td>
                 <td style="white-space: nowrap;">
                     <button class="btn btn-small btn-info" onclick="window.editPurchasePrice('${sku}')">💲 Price</button>
                     <button class="btn btn-small btn-warning" onclick="window.renameMaster('${sku}')">✏️ Rename</button>
@@ -1089,12 +1093,18 @@
             </tr>`;
         }
 
+        // --- SORT SKUS ALPHABETICALLY ---
+        let sortedSkus = Object.keys(db.masters).sort(); 
+
         // 1. Render Parents first, and their specific children immediately below them
         let renderedParents = new Set();
-        for (let sku in db.masters) {
+        for (let sku of sortedSkus) {
             if (db.skuGroups && db.skuGroups[sku] && db.skuGroups[sku].length > 0) {
                 html += generateRowHtml(sku, null, true);
-                db.skuGroups[sku].forEach(childSku => {
+                
+                // Sort children alphabetically too
+                let sortedChildren = [...db.skuGroups[sku]].sort();
+                sortedChildren.forEach(childSku => {
                     if(db.masters[childSku] !== undefined) {
                         html += generateRowHtml(childSku, sku, false);
                     }
@@ -1104,7 +1114,7 @@
         }
 
         // 2. Render all remaining standalone SKUs
-        for (let sku in db.masters) {
+        for (let sku of sortedSkus) {
             if (!renderedParents.has(sku) && !allChildren.has(sku)) {
                 html += generateRowHtml(sku, null, false);
             }
