@@ -169,7 +169,7 @@
 
     <div id="StockLocations" class="tabcontent">
         <h3>Detailed Stock Locations</h3>
-        <p style="color: #666; font-size: 13px;">Break down your Master Stock by location. Any changes here instantly update the Total Master Stock.</p>
+        <p style="color: #666; font-size: 13px;">Master Stock is the source of truth. Enter your Rack/New units below, and <b>Warehouse</b> will automatically calculate the balance.</p>
         
         <div class="section-box bulk-box action-bar" style="margin-bottom: 20px;">
             <button class="btn btn-info" onclick="window.downloadLocationsTemplate()">⬇️ Download Locations Template</button>
@@ -183,9 +183,9 @@
                 <thead>
                     <tr>
                         <th>Master SKU</th>
-                        <th style="background-color:#fff3cd; color:#856404;">Rack Stock</th>
-                        <th style="background-color:#d4edda; color:#155724;">Warehouse Stock</th>
-                        <th style="background-color:#d1ecf1; color:#0c5460;">New Purchase Stock</th>
+                        <th style="background-color:#fff3cd; color:#856404;">Rack Stock (Manual)</th>
+                        <th style="background-color:#eef2f5; color:#0c5460;">Warehouse Stock (Auto-Balance)</th>
+                        <th style="background-color:#d1ecf1; color:#0c5460;">New Purchase Stock (Manual)</th>
                         <th style="background-color:#007bff; color:white;">Total Master Stock</th>
                         <th>Action</th>
                     </tr>
@@ -438,26 +438,16 @@
 
     window.executeBulkSave = async function() {
         let db = getDB();
-        let today = new Date().toISOString().split('T')[0];
-        if(!db.purchaseHistory) db.purchaseHistory = [];
 
-        // Save Locations & Log History Difference
+        // Save Locations (Do not alter Master Stock! WH is purely calculated)
         document.querySelectorAll('input[id^="loc_rack_"]').forEach(inp => {
             let sku = inp.id.replace('loc_rack_', '');
             let r = parseInt(document.getElementById(`loc_rack_${sku}`).value) || 0;
-            let w = parseInt(document.getElementById(`loc_wh_${sku}`).value) || 0;
             let n = parseInt(document.getElementById(`loc_new_${sku}`).value) || 0;
-            
-            let newTotal = r + w + n;
-            let oldTotal = db.masters[sku] || 0;
-            let diff = newTotal - oldTotal;
+            let total = db.masters[sku] || 0;
+            let w = total - r - n;
 
             db.locations[sku] = { rack: r, wh: w, new: n };
-            db.masters[sku] = newTotal; 
-
-            if (diff !== 0) {
-                db.purchaseHistory.push({ date: today, master: sku, qtyAdded: diff, action: 'bulk_edit' });
-            }
         });
 
         // Save ASIN Mapping
@@ -521,7 +511,6 @@
                     if(input && input.type !== "checkbox") text += " " + input.value; 
                     text = text.trim();
                     if (text && text !== "Save" && text !== "Save Breakup" && text !== "💲 Price" && text !== "✏️ Rename" && text !== "🗑️ Del" && text !== "▼" && text !== "▶") {
-                        // Strip out the arrow characters if they get caught in the text extraction
                         uniqueVals.add(text.replace(/[▶▼]/g, '').trim());
                     }
                 }
@@ -1025,7 +1014,7 @@
         btnRef.innerText = isExpanded ? "▶" : "▼";
     };
 
-    // --- NEW: RENDER MASTER STOCK TABLE (WITH ACCORDION & SORTING) ---
+    // --- RENDER MASTER STOCK TABLE ---
     window.renderMasterStockTable = function() {
         let db = getDB(); let html = "";
         let linkedCounts = {};
@@ -1195,6 +1184,19 @@
     };
 
     // --- TAB 2: STOCK LOCATIONS ---
+    window.updateWHBalance = function(sku) {
+        let total = window.cloudDB.masters[sku] || 0;
+        let r = parseInt(document.getElementById(`loc_rack_${sku}`).value) || 0;
+        let n = parseInt(document.getElementById(`loc_new_${sku}`).value) || 0;
+        let w = total - r - n;
+        
+        let whEl = document.getElementById(`loc_wh_display_${sku}`);
+        if(whEl) {
+            whEl.innerText = w;
+            whEl.style.color = w < 0 ? "red" : "#0c5460";
+        }
+    };
+
     window.downloadLocationsTemplate = function() {
         let db = getDB(); let dataToExport = [];
         for (let sku in db.masters) {
@@ -1220,28 +1222,21 @@
             let data = new Uint8Array(e.target.result); let workbook = XLSX.read(data, {type: 'array'});
             let json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
             let db = getDB(); let count = 0;
-            if(!db.purchaseHistory) db.purchaseHistory = [];
-            let todayDate = new Date().toISOString().split('T')[0];
 
             json.forEach(rawRow => {
                 let row = normalizeRow(rawRow);
                 let sku = row["MASTER SKU"] || row["MASTERSKU"];
                 let rack = parseInt(row["RACK STOCK"] || row["RACK"] || 0);
-                let wh = parseInt(row["WAREHOUSE STOCK"] || row["WAREHOUSE"] || 0);
                 let newPurch = parseInt(row["NEW PURCHASE STOCK"] || row["NEW PURCHASE"] || row["NEW"] || 0);
 
                 if (sku) {
                     sku = sku.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_");
                     if (db.masters[sku] !== undefined) {
-                        let newTotal = (isNaN(rack)?0:rack) + (isNaN(wh)?0:wh) + (isNaN(newPurch)?0:newPurch);
-                        let diff = newTotal - (db.masters[sku] || 0);
-
-                        db.locations[sku] = { rack: isNaN(rack)?0:rack, wh: isNaN(wh)?0:wh, new: isNaN(newPurch)?0:newPurch };
-                        db.masters[sku] = newTotal;
-                        
-                        if (diff !== 0) {
-                            db.purchaseHistory.push({ date: todayDate, master: sku, qtyAdded: diff, action: 'location_excel' });
-                        }
+                        let r = isNaN(rack) ? 0 : rack;
+                        let n = isNaN(newPurch) ? 0 : newPurch;
+                        let w = db.masters[sku] - r - n; // Calculate Warehouse Balance
+                        db.locations[sku] = { rack: r, wh: w, new: n };
+                        // DO NOT UPDATE MASTER STOCK HERE. 
                         count++;
                     }
                 }
@@ -1252,17 +1247,96 @@
 
     window.renderLocationsTable = function() {
         let db = getDB(); let html = "";
-        for (let sku in db.masters) {
-            let locs = db.locations[sku] || { rack: 0, wh: db.masters[sku], new: 0 };
-            html += `<tr>
-                <td><strong>${sku}</strong></td>
-                <td><input type="number" id="loc_rack_${sku}" class="price-input" value="${locs.rack}" oninput="window.markEdit()"></td>
-                <td><input type="number" id="loc_wh_${sku}" class="price-input" value="${locs.wh}" oninput="window.markEdit()"></td>
-                <td><input type="number" id="loc_new_${sku}" class="price-input" value="${locs.new}" oninput="window.markEdit()"></td>
-                <td style="font-weight:bold; font-size:14px;">${db.masters[sku]}</td>
+
+        // Find all children so we don't render them twice
+        let allChildren = new Set();
+        if(db.skuGroups) {
+            for(let p in db.skuGroups) {
+                db.skuGroups[p].forEach(c => allChildren.add(c));
+            }
+        }
+
+        function generateLocationRowHtml(sku, isChildOf = null, isParent = false) {
+            let locs = db.locations[sku] || { rack: 0, wh: db.masters[sku] || 0, new: 0 };
+            
+            let groupDisplay = "";
+            let toggleBtn = "";
+            let safeId = sku.replace(/[^a-zA-Z0-9]/g, '_');
+            
+            let trClass = isChildOf ? `child-of-${isChildOf.replace(/[^a-zA-Z0-9]/g, '_')}` : `parent-row`;
+            let trStyle = isChildOf ? `display: none; background-color: #fdfdfd;` : ``;
+            
+            let displayTotal = db.masters[sku] || 0; // Default total
+            
+            if (isParent) {
+                let children = db.skuGroups[sku] || [];
+                let childrenStockSum = 0;
+                
+                children.forEach(c => {
+                    childrenStockSum += (db.masters[c] || 0);
+                });
+                
+                let unallocatedSales = db.masters[sku] || 0; 
+                let truePhysicalStock = childrenStockSum + unallocatedSales;
+                
+                displayTotal = truePhysicalStock; // Override main column for visual total
+
+                groupDisplay = `
+                    <div style="margin-top: 6px; font-size: 11px; background-color: #fff3cd; padding: 6px; border: 1px solid #ffeeba; border-left: 3px solid #ffc107; border-radius: 4px;">
+                        <div style="color: #856404; margin-bottom: 2px;"><b>True Combined Total:</b> <span style="font-size:13px;">${truePhysicalStock}</span></div>
+                        <div style="color: #666;">(Color Sum: ${childrenStockSum} | Unallocated Multi: ${unallocatedSales})</div>
+                    </div>`;
+                    
+                toggleBtn = `<button class="btn-small" style="background:#007bff; color:white; border:none; border-radius:3px; cursor:pointer; margin-right:8px; padding: 2px 6px;" onclick="window.toggleChildRows('${safeId}', this)">▶</button>`;
+            }
+            
+            let childDisplay = isChildOf ? `<div style="font-size: 11px; color: #17a2b8; margin-top: 4px;">↳ Part of: <b>${isChildOf}</b></div>` : "";
+            let indentStyle = isChildOf ? `padding-left: 35px; border-left: 3px solid #17a2b8;` : ``;
+
+            return `<tr class="${trClass}" style="${trStyle}">
+                <td style="${indentStyle}">
+                    <div style="display:flex; align-items:flex-start;">
+                        ${toggleBtn}
+                        <div>
+                            <strong>${sku}</strong> ${childDisplay} ${groupDisplay}
+                        </div>
+                    </div>
+                </td>
+                <td><input type="number" id="loc_rack_${sku}" class="price-input" min="0" value="${locs.rack}" oninput="window.updateWHBalance('${sku}'); window.markEdit()"></td>
+                <td style="background-color:#eef2f5; font-weight:bold; font-size:14px; text-align:center; color:${locs.wh < 0 ? 'red' : '#0c5460'};" id="loc_wh_display_${sku}">${locs.wh}</td>
+                <td><input type="number" id="loc_new_${sku}" class="price-input" min="0" value="${locs.new}" oninput="window.updateWHBalance('${sku}'); window.markEdit()"></td>
+                <td style="font-weight:bold; font-size:14px; ${isChildOf ? 'color:#17a2b8;' : ''}">${displayTotal}</td>
                 <td><button class="btn btn-small" onclick="window.saveLocations('${sku}')">Save</button></td>
             </tr>`;
         }
+
+        // Sort SKUs alphabetically
+        let sortedSkus = Object.keys(db.masters).sort(); 
+
+        // 1. Render Parents first
+        let renderedParents = new Set();
+        for (let sku of sortedSkus) {
+            if (db.skuGroups && db.skuGroups[sku] && db.skuGroups[sku].length > 0) {
+                html += generateLocationRowHtml(sku, null, true);
+                
+                // Sort children alphabetically
+                let sortedChildren = [...db.skuGroups[sku]].sort();
+                sortedChildren.forEach(childSku => {
+                    if(db.masters[childSku] !== undefined) {
+                        html += generateLocationRowHtml(childSku, sku, false);
+                    }
+                });
+                renderedParents.add(sku);
+            }
+        }
+
+        // 2. Render all remaining standalone SKUs
+        for (let sku of sortedSkus) {
+            if (!renderedParents.has(sku) && !allChildren.has(sku)) {
+                html += generateLocationRowHtml(sku, null, false);
+            }
+        }
+
         let tbody = document.getElementById("locationsTableBody"); 
         if(tbody) {
             tbody.innerHTML = html;
@@ -1273,20 +1347,13 @@
     window.saveLocations = async function(sku) {
         let db = getDB();
         let r = parseInt(document.getElementById(`loc_rack_${sku}`).value) || 0;
-        let w = parseInt(document.getElementById(`loc_wh_${sku}`).value) || 0;
         let n = parseInt(document.getElementById(`loc_new_${sku}`).value) || 0;
         
-        let newTotal = r + w + n;
-        let oldTotal = db.masters[sku] || 0;
-        let diff = newTotal - oldTotal;
+        let total = db.masters[sku] || 0;
+        let w = total - r - n; // Auto Calculate Warehouse Balance
 
         db.locations[sku] = { rack: r, wh: w, new: n };
-        db.masters[sku] = newTotal; 
-        
-        if(!db.purchaseHistory) db.purchaseHistory = [];
-        if (diff !== 0) {
-            db.purchaseHistory.push({ date: new Date().toISOString().split('T')[0], master: sku, qtyAdded: diff, action: 'location_edit' });
-        }
+        // DO NOT change db.masters[sku] here. Master is the source of truth.
         
         window.hasUnsavedEdits = false;
         document.getElementById('globalBulkActionBar').style.display = 'none';
@@ -1439,7 +1506,7 @@
             let deductedStock = {}; let totalDeductionsFound = 0;
             let processedOrders = db.processedOrders || {}; 
             
-            let todayDate = dateInput; // NEW: Uses explicitly selected date
+            let todayDate = dateInput;
 
             json.forEach(rawRow => {
                 let row = normalizeRow(rawRow); let asin = extractASIN(row); let ordered = extractOrders(row); let orderId = extractOrderID(row); 
@@ -1477,42 +1544,45 @@
                     if(!db.sales[mSku]) db.sales[mSku] = []; db.sales[mSku].push(deduction); if(db.sales[mSku].length > 3) db.sales[mSku].shift(); 
                     html += `<tr><td><strong>${mSku}</strong></td><td>${opening}</td><td style="color:red; font-weight:bold;">- ${deduction}</td><td style="color:green; font-weight:bold;">${closing}</td></tr>`; 
                     
-                    // 1. Deduct directly from Master
+                    // 1. Deduct directly from Master Total
                     db.masters[mSku] = closing;
                     
-                    // 2. Deduct specifically from Rack -> WH -> New
+                    // 2. Cascade Deduction from Rack -> New Purch -> WH 
                     if(db.locations[mSku]) {
                         let qtyToDeduct = deduction;
-                        
                         let rack = db.locations[mSku].rack || 0;
-                        let wh = db.locations[mSku].wh || 0;
                         let newPurch = db.locations[mSku].new || 0;
 
+                        // Try to take from Rack first
                         if (rack >= qtyToDeduct) {
                             rack -= qtyToDeduct;
                             qtyToDeduct = 0;
                         } else {
                             qtyToDeduct -= rack;
-                            rack = 0;
+                            rack = 0; // Rack bottoms out at 0
                         }
 
-                        if (qtyToDeduct > 0) {
-                            if (wh >= qtyToDeduct) {
-                                wh -= qtyToDeduct;
-                                qtyToDeduct = 0;
-                            } else {
-                                qtyToDeduct -= wh;
+                        // We skip Warehouse for a second and try New Purchase.
+                        // Actually, Warehouse is purely a calculated balance, 
+                        // so Warehouse will mathematically absorb everything else by definition!
+                        let wh = closing - rack - newPurch; 
+                        
+                        // If Warehouse went negative, but we still have New Purchase available, 
+                        // we steal from New Purchase to try and balance Warehouse back to 0.
+                        if (wh < 0 && newPurch > 0) {
+                            let overflow = Math.abs(wh);
+                            if (newPurch >= overflow) {
+                                newPurch -= overflow;
                                 wh = 0;
+                            } else {
+                                wh += newPurch; // Still negative, but absorbs what's left
+                                newPurch = 0;
                             }
                         }
 
-                        if (qtyToDeduct > 0) {
-                            newPurch -= qtyToDeduct; // Takes any remaining overflow
-                        }
-
                         db.locations[mSku].rack = rack;
-                        db.locations[mSku].wh = wh;
                         db.locations[mSku].new = newPurch;
+                        db.locations[mSku].wh = wh;
                     }
                 }
             }
