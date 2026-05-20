@@ -169,7 +169,7 @@
 
     <div id="StockLocations" class="tabcontent">
         <h3>Detailed Stock Locations</h3>
-        <p style="color: #666; font-size: 13px;">Master Stock is the source of truth. Enter your Rack/New units below, and <b>Warehouse</b> will automatically calculate the balance.</p>
+        <p style="color: #666; font-size: 13px;">Master Stock is the source of truth. Enter your Rack units below, and <b>Warehouse</b> will automatically calculate the balance.</p>
         
         <div class="section-box bulk-box action-bar" style="margin-bottom: 20px;">
             <button class="btn btn-info" onclick="window.downloadLocationsTemplate()">⬇️ Download Locations Template</button>
@@ -185,7 +185,6 @@
                         <th>Master SKU</th>
                         <th style="background-color:#fff3cd; color:#856404;">Rack Stock (Manual)</th>
                         <th style="background-color:#eef2f5; color:#0c5460;">Warehouse Stock (Auto-Balance)</th>
-                        <th style="background-color:#d1ecf1; color:#0c5460;">New Purchase Stock (Manual)</th>
                         <th style="background-color:#007bff; color:white;">Total Master Stock</th>
                         <th>Action</th>
                     </tr>
@@ -349,6 +348,10 @@
                     <input type="date" id="ledgerEndDate" onchange="window.renderOrderHistoryTable()" style="margin-bottom: 0; width: 150px;">
                 </div>
             </div>
+            
+            <div style="margin-left: auto;">
+                <button class="btn btn-danger btn-small" onclick="window.clearAllOrderHistory()">🗑️ Erase All Order History</button>
+            </div>
         </div>
 
         <div class="table-responsive">
@@ -360,6 +363,7 @@
                         <th>Master SKU</th>
                         <th>ASIN</th>
                         <th>Qty Deducted</th>
+                        <th style="width: 80px;">Action</th>
                     </tr>
                 </thead>
                 <tbody id="orderHistoryTableBody"></tbody>
@@ -396,6 +400,10 @@
                     <input type="date" id="tallyEndDate" onchange="window.renderTallyTable()" style="margin-bottom: 0; width: 150px;">
                 </div>
             </div>
+
+            <div style="margin-left: auto;">
+                <button class="btn btn-danger btn-small" onclick="window.clearAllPurchaseHistory()">🗑️ Erase All Purchase History</button>
+            </div>
         </div>
 
         <div class="table-responsive">
@@ -406,7 +414,7 @@
                         <th>Linked ASIN(s)</th>
                         <th style="background-color:#d4edda; color:#155724;">Total Purchased (Added)</th>
                         <th style="background-color:#f8d7da; color:#721c24;">Units Sold (Deducted)</th>
-                        <th style="background-color:#d1ecf1; color:#0c5460;">Current Stock (Rack+WH+New)</th>
+                        <th style="background-color:#d1ecf1; color:#0c5460;">Current Stock (Rack+WH)</th>
                     </tr>
                 </thead>
                 <tbody id="stockTallyTableBody"></tbody>
@@ -443,11 +451,10 @@
         document.querySelectorAll('input[id^="loc_rack_"]').forEach(inp => {
             let sku = inp.id.replace('loc_rack_', '');
             let r = parseInt(document.getElementById(`loc_rack_${sku}`).value) || 0;
-            let n = parseInt(document.getElementById(`loc_new_${sku}`).value) || 0;
             let total = db.masters[sku] || 0;
-            let w = total - r - n;
+            let w = total - r;
 
-            db.locations[sku] = { rack: r, wh: w, new: n };
+            db.locations[sku] = { rack: r, wh: w };
         });
 
         // Save ASIN Mapping
@@ -459,7 +466,7 @@
                 db.asins[asin].master = master;
                 db.asins[asin].pack = pack;
                 if(master && db.masters[master] === undefined) { 
-                    db.masters[master] = 0; db.locations[master] = { rack: 0, wh: 0, new: 0 }; 
+                    db.masters[master] = 0; db.locations[master] = { rack: 0, wh: 0 }; 
                 }
             }
         });
@@ -510,7 +517,7 @@
                     let input = cell.querySelector("input");
                     if(input && input.type !== "checkbox") text += " " + input.value; 
                     text = text.trim();
-                    if (text && text !== "Save" && text !== "Save Breakup" && text !== "💲 Price" && text !== "✏️ Rename" && text !== "🗑️ Del" && text !== "▼" && text !== "▶") {
+                    if (text && text !== "Save" && text !== "Save Breakup" && text !== "💲 Price" && text !== "✏️ Rename" && text !== "🗑️ Del" && text !== "▼" && text !== "▶" && text !== "🗑️ Erase") {
                         uniqueVals.add(text.replace(/[▶▼]/g, '').trim());
                     }
                 }
@@ -716,7 +723,7 @@
 
             for(let sku in window.cloudDB.masters) {
                 if(!window.cloudDB.locations[sku]) {
-                    window.cloudDB.locations[sku] = { rack: 0, wh: window.cloudDB.masters[sku], new: 0 };
+                    window.cloudDB.locations[sku] = { rack: 0, wh: window.cloudDB.masters[sku] };
                 }
             }
 
@@ -895,8 +902,7 @@
                 "Purchase Price": db.purchasePrices[sku] || 0,
                 "Total Stock": db.masters[sku],
                 "Rack Stock": db.locations[sku]?.rack || 0,
-                "Warehouse Stock": db.locations[sku]?.wh || 0,
-                "New Purchase": db.locations[sku]?.new || 0
+                "Warehouse Stock": db.locations[sku]?.wh || 0
             });
         }
         if (dataToExport.length === 0) return alert("No Master SKUs exist yet!");
@@ -925,16 +931,15 @@
                 
                 let rack = parseInt(row["RACK STOCK"] || row["RACK"] || 0);
                 let wh = parseInt(row["WAREHOUSE STOCK"] || row["WAREHOUSE"] || totalStock);
-                let newPurch = parseInt(row["NEW PURCHASE"] || row["NEW"] || 0);
 
                 if (sku) {
                     sku = sku.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_");
-                    let newTotal = rack + wh + newPurch;
+                    let newTotal = rack + wh;
                     let diff = newTotal - (db.masters[sku] || 0);
 
                     db.masters[sku] = newTotal; 
                     db.purchasePrices[sku] = isNaN(price) ? 0 : price;
-                    db.locations[sku] = { rack: isNaN(rack)?0:rack, wh: isNaN(wh)?0:wh, new: isNaN(newPurch)?0:newPurch };
+                    db.locations[sku] = { rack: isNaN(rack)?0:rack, wh: isNaN(wh)?0:wh };
                     
                     if (diff !== 0) {
                         db.purchaseHistory.push({ date: todayDate, master: sku, qtyAdded: diff, action: 'excel_sync' });
@@ -966,7 +971,7 @@
         if (!sku || isNaN(stockInput) || isNaN(purchasePrice)) return alert("Please enter valid SKU, Stock, and Price.");
         
         let db = getDB();
-        if(!db.locations[sku]) db.locations[sku] = { rack: 0, wh: 0, new: 0 };
+        if(!db.locations[sku]) db.locations[sku] = { rack: 0, wh: 0 };
         
         let diff = action === "add" ? stockInput : (stockInput - (db.masters[sku] || 0));
 
@@ -980,7 +985,7 @@
 
         // Auto balance Warehouse to equal Master Stock
         if(db.locations[sku]) {
-            db.locations[sku].wh = db.masters[sku] - (db.locations[sku].rack || 0) - (db.locations[sku].new || 0);
+            db.locations[sku].wh = db.masters[sku] - (db.locations[sku].rack || 0);
         }
 
         // Log Purchase Addition for the Tally Report
@@ -1187,8 +1192,7 @@
     window.updateWHBalance = function(sku) {
         let total = window.cloudDB.masters[sku] || 0;
         let r = parseInt(document.getElementById(`loc_rack_${sku}`).value) || 0;
-        let n = parseInt(document.getElementById(`loc_new_${sku}`).value) || 0;
-        let w = total - r - n;
+        let w = total - r;
         
         let whEl = document.getElementById(`loc_wh_display_${sku}`);
         if(whEl) {
@@ -1200,12 +1204,11 @@
     window.downloadLocationsTemplate = function() {
         let db = getDB(); let dataToExport = [];
         for (let sku in db.masters) {
-            let locs = db.locations[sku] || { rack: 0, wh: db.masters[sku], new: 0 };
+            let locs = db.locations[sku] || { rack: 0, wh: db.masters[sku] };
             dataToExport.push({
                 "Master SKU": sku,
                 "Rack Stock": locs.rack,
-                "Warehouse Stock": locs.wh,
-                "New Purchase Stock": locs.new
+                "Warehouse Stock": locs.wh
             });
         }
         if (dataToExport.length === 0) return alert("No Master SKUs exist yet!");
@@ -1227,15 +1230,13 @@
                 let row = normalizeRow(rawRow);
                 let sku = row["MASTER SKU"] || row["MASTERSKU"];
                 let rack = parseInt(row["RACK STOCK"] || row["RACK"] || 0);
-                let newPurch = parseInt(row["NEW PURCHASE STOCK"] || row["NEW PURCHASE"] || row["NEW"] || 0);
 
                 if (sku) {
                     sku = sku.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_");
                     if (db.masters[sku] !== undefined) {
                         let r = isNaN(rack) ? 0 : rack;
-                        let n = isNaN(newPurch) ? 0 : newPurch;
-                        let w = db.masters[sku] - r - n; // Calculate Warehouse Balance
-                        db.locations[sku] = { rack: r, wh: w, new: n };
+                        let w = db.masters[sku] - r; // Calculate Warehouse Balance
+                        db.locations[sku] = { rack: r, wh: w };
                         // DO NOT UPDATE MASTER STOCK HERE. 
                         count++;
                     }
@@ -1257,7 +1258,7 @@
         }
 
         function generateLocationRowHtml(sku, isChildOf = null, isParent = false) {
-            let locs = db.locations[sku] || { rack: 0, wh: db.masters[sku] || 0, new: 0 };
+            let locs = db.locations[sku] || { rack: 0, wh: db.masters[sku] || 0 };
             
             let groupDisplay = "";
             let toggleBtn = "";
@@ -1304,7 +1305,6 @@
                 </td>
                 <td><input type="number" id="loc_rack_${sku}" class="price-input" min="0" value="${locs.rack}" oninput="window.updateWHBalance('${sku}'); window.markEdit()"></td>
                 <td style="background-color:#eef2f5; font-weight:bold; font-size:14px; text-align:center; color:${locs.wh < 0 ? 'red' : '#0c5460'};" id="loc_wh_display_${sku}">${locs.wh}</td>
-                <td><input type="number" id="loc_new_${sku}" class="price-input" min="0" value="${locs.new}" oninput="window.updateWHBalance('${sku}'); window.markEdit()"></td>
                 <td style="font-weight:bold; font-size:14px; ${isChildOf ? 'color:#17a2b8;' : ''}">${displayTotal}</td>
                 <td><button class="btn btn-small" onclick="window.saveLocations('${sku}')">Save</button></td>
             </tr>`;
@@ -1347,12 +1347,11 @@
     window.saveLocations = async function(sku) {
         let db = getDB();
         let r = parseInt(document.getElementById(`loc_rack_${sku}`).value) || 0;
-        let n = parseInt(document.getElementById(`loc_new_${sku}`).value) || 0;
         
         let total = db.masters[sku] || 0;
-        let w = total - r - n; // Auto Calculate Warehouse Balance
+        let w = total - r; // Auto Calculate Warehouse Balance
 
-        db.locations[sku] = { rack: r, wh: w, new: n };
+        db.locations[sku] = { rack: r, wh: w };
         // DO NOT change db.masters[sku] here. Master is the source of truth.
         
         window.hasUnsavedEdits = false;
@@ -1436,7 +1435,7 @@
                         
                         if (db.masters[master] === undefined) { 
                             db.masters[master] = 0; 
-                            db.locations[master] = { rack: 0, wh: 0, new: 0 }; 
+                            db.locations[master] = { rack: 0, wh: 0 }; 
                         } 
                     }
                 }); 
@@ -1461,7 +1460,7 @@
         let master = document.getElementById(`map_master_${asin}`).value.trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_");
         let pack = parseInt(document.getElementById(`map_pack_${asin}`).value);
         let db = getDB(); db.asins[asin].master = master; db.asins[asin].pack = pack;
-        if(db.masters[master] === undefined) { db.masters[master] = 0; db.locations[master] = { rack: 0, wh: 0, new: 0 }; }
+        if(db.masters[master] === undefined) { db.masters[master] = 0; db.locations[master] = { rack: 0, wh: 0 }; }
         
         window.hasUnsavedEdits = false;
         document.getElementById('globalBulkActionBar').style.display = 'none';
@@ -1547,11 +1546,10 @@
                     // 1. Deduct directly from Master Total
                     db.masters[mSku] = closing;
                     
-                    // 2. Cascade Deduction from Rack -> New Purch -> WH 
+                    // 2. Cascade Deduction from Rack -> WH 
                     if(db.locations[mSku]) {
                         let qtyToDeduct = deduction;
                         let rack = db.locations[mSku].rack || 0;
-                        let newPurch = db.locations[mSku].new || 0;
 
                         // Try to take from Rack first
                         if (rack >= qtyToDeduct) {
@@ -1562,26 +1560,10 @@
                             rack = 0; // Rack bottoms out at 0
                         }
 
-                        // We skip Warehouse for a second and try New Purchase.
-                        // Actually, Warehouse is purely a calculated balance, 
-                        // so Warehouse will mathematically absorb everything else by definition!
-                        let wh = closing - rack - newPurch; 
-                        
-                        // If Warehouse went negative, but we still have New Purchase available, 
-                        // we steal from New Purchase to try and balance Warehouse back to 0.
-                        if (wh < 0 && newPurch > 0) {
-                            let overflow = Math.abs(wh);
-                            if (newPurch >= overflow) {
-                                newPurch -= overflow;
-                                wh = 0;
-                            } else {
-                                wh += newPurch; // Still negative, but absorbs what's left
-                                newPurch = 0;
-                            }
-                        }
+                        // Warehouse absorbs whatever is left (could go negative)
+                        let wh = closing - rack; 
 
                         db.locations[mSku].rack = rack;
-                        db.locations[mSku].new = newPurch;
                         db.locations[mSku].wh = wh;
                     }
                 }
@@ -1635,7 +1617,7 @@
                 
                 // 2. Adjust Warehouse to balance
                 if(db.locations[mSku]) {
-                    db.locations[mSku].wh = db.masters[mSku] - (db.locations[mSku].rack || 0) - (db.locations[mSku].new || 0);
+                    db.locations[mSku].wh = db.masters[mSku] - (db.locations[mSku].rack || 0);
                 }
             }
             db.processedOrders = processedOrders; 
@@ -1796,10 +1778,28 @@
         window.renderOrderHistoryTable(); 
     };
 
+    window.deleteOrderRecord = async function(key) {
+        if(!confirm("Are you sure you want to erase this specific order record from the ledger? (Note: This updates the Tally, but DOES NOT add units back to Master Stock).")) return;
+        let db = getDB();
+        if(db.processedOrders && db.processedOrders[key]) {
+            delete db.processedOrders[key];
+            await saveDB(db);
+            alert("Record deleted.");
+        }
+    };
+
+    window.clearAllOrderHistory = async function() {
+        if(!confirm("Are you sure you want to erase ALL order history? This will reset your stock tally deductions. Master stock balances will NOT be changed.")) return;
+        let db = getDB();
+        db.processedOrders = {};
+        await saveDB(db);
+        alert("All Order History erased.");
+    };
+
     window.renderOrderHistoryTable = function() {
         let db = getDB(); let html = "";
         
-        let allOrders = Object.values(db.processedOrders || {}).filter(item => typeof item === 'object');
+        let allOrders = Object.entries(db.processedOrders || {}).map(([key, item]) => ({...item, uniqueKey: key}));
         allOrders.sort((a, b) => new Date(b.date) - new Date(a.date));
 
         let filterSelect = document.getElementById("ledgerDateFilterType");
@@ -1830,12 +1830,13 @@
                 <td style="color:#0277bd; font-weight:bold;">${order.master}</td>
                 <td>${order.asin}</td>
                 <td style="color:red; font-weight:bold;">- ${order.qty} Units</td>
+                <td><button class="btn btn-danger btn-small" onclick="window.deleteOrderRecord('${order.uniqueKey}')">🗑️ Erase</button></td>
             </tr>`;
         }
         
         let tbody = document.getElementById("orderHistoryTableBody"); 
         if(tbody) {
-            tbody.innerHTML = html || "<tr><td colspan='5' style='text-align:center;'>No orders found for selected dates.</td></tr>";
+            tbody.innerHTML = html || "<tr><td colspan='6' style='text-align:center;'>No orders found for selected dates.</td></tr>";
             setTimeout(() => window.buildTableFilters("tblOrderHistory"), 50);
         }
     };
@@ -1846,6 +1847,14 @@
         document.getElementById("tallyExactDateDiv").style.display = filterType === "exact" ? "block" : "none";
         document.getElementById("tallyRangeDateDiv").style.display = filterType === "range" ? "flex" : "none";
         window.renderTallyTable(); 
+    };
+
+    window.clearAllPurchaseHistory = async function() {
+        if(!confirm("Are you sure you want to erase ALL purchase history? This will reset your total purchased tally. Master stock balances will NOT be changed.")) return;
+        let db = getDB();
+        db.purchaseHistory = [];
+        await saveDB(db);
+        alert("All Purchase History erased.");
     };
 
     window.renderTallyTable = function() {
@@ -1901,7 +1910,7 @@
             let currentStock = db.masters[mSku] || 0;
 
             if (filterType === "all") {
-                // If All Dates, Purchased = Current Stock (Rack+WH+New) + Lifetime Sold
+                // If All Dates, Purchased = Current Stock (Rack+WH) + Lifetime Sold
                 purchased = currentStock + sold;
             } else {
                 // If Date Range, use the history ledger for purchases in that window
