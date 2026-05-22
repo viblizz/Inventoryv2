@@ -642,6 +642,39 @@
         db.enablePersistence().catch(err => console.log("Persistence error:", err));
 
         // ==============================================
+        // GLOBAL DATE FORMATTER (DD-MM-YYYY)
+        // ==============================================
+        function fmtDate(dStr) {
+            if (!dStr || dStr === '-' || dStr === '') return '-';
+            let s = dStr.toString().trim();
+            // If already DD-MM-YYYY
+            if (/^\d{2}-\d{2}-\d{4}$/.test(s)) return s;
+            // If YYYY-MM-DD, convert to DD-MM-YYYY
+            let match = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+            if (match) return `${match[3]}-${match[2]}-${match[1]}`;
+            // If it's another format (e.g. 10/24/2025), let JS Date handle it
+            let d = new Date(s);
+            if (!isNaN(d.getTime())) {
+                return String(d.getDate()).padStart(2,'0') + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + d.getFullYear();
+            }
+            return s; // Fallback
+        }
+
+        // Standardize dates to YYYY-MM-DD for database storage so <input type="date"> works smoothly
+        function standardizeToYYYYMMDD(dStr) {
+            if(!dStr) return "";
+            let s = dStr.toString().trim();
+            if(s.includes('T')) s = s.split('T')[0];
+            if(s.includes(' ')) s = s.split(' ')[0];
+            
+            let d = new Date(s);
+            if(!isNaN(d.getTime())) {
+                return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+            }
+            return s;
+        }
+
+        // ==============================================
         // GLOBAL CSV PARSER
         // ==============================================
         function parseCSVLine(text, sep = ',') {
@@ -678,11 +711,11 @@
 
         // --- CLAIM MESSAGE TEMPLATES ---
         let defaultClaimTemplates = {
-            "Damaged": "Dear Amazon Seller Support,\n\nOrder ID: [ORDER_ID]\nTracking ID: [TRACKING_ID]\nASIN: [ASIN]\nProduct Title: [PRODUCT_TITLE]\n\nWe received the return for the above order, but the item is completely damaged and unsellable. We expected [QTY] in good condition. Please investigate and reimburse us for the damaged return.\n\nThank you.",
-            "Different": "Dear Amazon Seller Support,\n\nOrder ID: [ORDER_ID]\nTracking ID: [TRACKING_ID]\nASIN: [ASIN]\nProduct Title: [PRODUCT_TITLE]\n\nWe received a return, but the buyer has returned a completely different product instead of our original item. Please issue a reimbursement for this fraudulent return.\n\nThank you.",
-            "Missing Quantity": "Dear Amazon Seller Support,\n\nOrder ID: [ORDER_ID]\nTracking ID: [TRACKING_ID]\nASIN: [ASIN]\nProduct Title: [PRODUCT_TITLE]\n\nThe buyer returned this order, but there is a quantity discrepancy. We shipped [QTY] units, but only received [REC_QTY] units back. Please reimburse us for the missing units.\n\nThank you.",
-            "Missing Parts": "Dear Amazon Seller Support,\n\nOrder ID: [ORDER_ID]\nTracking ID: [TRACKING_ID]\nASIN: [ASIN]\nProduct Title: [PRODUCT_TITLE]\n\nWe received the return, but crucial parts/accessories are missing from the package, making the item unsellable. Please reimburse for the loss of value.\n\nThank you.",
-            "Lost": "Dear Amazon Seller Support,\n\nOrder ID: [ORDER_ID]\nTracking ID: [TRACKING_ID]\nASIN: [ASIN]\nProduct Title: [PRODUCT_TITLE]\n\nThe carrier tracking shows this return was processed, but we never received the physical package at our facility. Please investigate this lost return and issue a reimbursement.\n\nThank you."
+            "Damaged": "Dear Amazon Seller Support,\n\nOrder ID: [ORDER ID]\nTracking ID: [TRACKING ID]\nASIN: [ASIN]\nProduct Title: [PRODUCT TITLE]\n\nWe received the return for the above order, but the item is completely damaged and unsellable. We expected [QTY] in good condition. Please investigate and reimburse us for the damaged return.\n\nThank you.",
+            "Different": "Dear Amazon Seller Support,\n\nOrder ID: [ORDER ID]\nTracking ID: [TRACKING ID]\nASIN: [ASIN]\nProduct Title: [PRODUCT TITLE]\n\nWe received a return, but the buyer has returned a completely different product instead of our original item. Please issue a reimbursement for this fraudulent return.\n\nThank you.",
+            "Missing Quantity": "Dear Amazon Seller Support,\n\nOrder ID: [ORDER ID]\nTracking ID: [TRACKING ID]\nASIN: [ASIN]\nProduct Title: [PRODUCT TITLE]\n\nThe buyer returned this order, but there is a quantity discrepancy. We shipped [QTY] units, but only received [REC QTY] units back. Please reimburse us for the missing units.\n\nThank you.",
+            "Missing Parts": "Dear Amazon Seller Support,\n\nOrder ID: [ORDER ID]\nTracking ID: [TRACKING ID]\nASIN: [ASIN]\nProduct Title: [PRODUCT TITLE]\n\nWe received the return, but crucial parts/accessories are missing from the package, making the item unsellable. Please reimburse for the loss of value.\n\nThank you.",
+            "Lost": "Dear Amazon Seller Support,\n\nOrder ID: [ORDER ID]\nTracking ID: [TRACKING ID]\nASIN: [ASIN]\nProduct Title: [PRODUCT TITLE]\n\nThe carrier tracking shows this return was processed, but we never received the physical package at our facility. Please investigate this lost return and issue a reimbursement.\n\nThank you."
         };
         let userTemplates = JSON.parse(localStorage.getItem('claimTemplates')) || defaultClaimTemplates;
 
@@ -795,7 +828,7 @@
                     reportData.sort((a,b) => new Date(b.reqDate) - new Date(a.reqDate));
                     
                     document.getElementById('ingestionTableBody').innerHTML = reportData.map(d => `
-                        <tr><td>${d.orderDate||'-'}</td><td>${d.reqDate}</td><td>${d.orderId}</td><td>${d.trackingId}</td>
+                        <tr><td>${fmtDate(d.orderDate)}</td><td>${fmtDate(d.reqDate)}</td><td>${d.orderId}</td><td>${d.trackingId}</td>
                         <td>${d.asin}</td><td>${d.sku}</td><td>${d.amzReason}</td>
                         <td><b>${d.oAmt}</b></td><td><b>${d.oQty}</b></td></tr>
                     `).join('');
@@ -1159,9 +1192,9 @@
 
                         validRecords.push({
                             uid: uniqueId,  
-                            orderDate: (map.oDate !== -1 && c[map.oDate]) ? c[map.oDate] : "",
+                            orderDate: standardizeToYYYYMMDD(map.oDate !== -1 && c[map.oDate] ? c[map.oDate] : ""),
                             orderId: oid || `UNKNOWN-OID-${Date.now()}-${idx}`,
-                            reqDate: (map.reqDate !== -1 && c[map.reqDate]) ? c[map.reqDate] : "",
+                            reqDate: standardizeToYYYYMMDD(map.reqDate !== -1 && c[map.reqDate] ? c[map.reqDate] : ""),
                             trackingId: tid,
                             sku: sku,
                             asin: asin,
@@ -1371,7 +1404,7 @@
 
             document.getElementById('scanTableBody').innerHTML = pendingScans.map(d => `
                 <tr id="row-${d.uid}">
-                    <td>${d.delDate || '-'}</td>
+                    <td>${fmtDate(d.delDate)}</td>
                     <td style="font-size:12px;"><b>${d.orderId}</b><br>ASIN: ${d.asin}</td>
                     <td>${d.trackingId}</td>
                     <td style="font-size:12px;"><b>Val:</b> ${d.oAmt}<br><b>Exp Qty:</b> ${d.oQty}</td>
@@ -1406,13 +1439,13 @@
                 const d = reportData.find(item => item.uid === uid);
                 if (!d) continue;
 
-                let dVal = (d.delDate || "-").toUpperCase();
+                let dVal = fmtDate(d.delDate).toUpperCase();
                 let mDate = dateVals.length === 0 || dateVals.includes(dVal);
 
                 if (mDate) row.style.display = "";
                 else row.style.display = "none";
 
-                aDate.add(d.delDate || "-");
+                aDate.add(fmtDate(d.delDate));
             }
             
             populateMS('ms-opt-scanDateSearch', [...aDate], 'filterScanTable');
@@ -1566,7 +1599,7 @@
 
                 if (d.claimStatus === 'Approved' && !isEditing) {
                     contentHtml = `
-                        <td><b>${d.claimId || '-'}</b><br>${d.claimDate || '-'}</td>
+                        <td><b>${d.claimId || '-'}</b><br>${fmtDate(d.claimDate)}</td>
                         <td data-val="${d.oAmt}">
                             <div style="font-size:11px; margin-bottom:4px; color:#555;">Val: <b>${d.oAmt}</b> | Exp Qty: <b>${d.oQty}</b></div>
                             Amt Rec: <b>${d.amtRec || '0'}</b><br>Qty Rec: <b>${d.recQty || '0'}</b>
@@ -1578,7 +1611,7 @@
                     `;
                 } else if (d.claimStatus === 'Denied' && !isEditing) {
                     contentHtml = `
-                        <td><b>${d.claimId || '-'}</b><br>${d.claimDate || '-'}</td>
+                        <td><b>${d.claimId || '-'}</b><br>${fmtDate(d.claimDate)}</td>
                         <td data-val="${d.oAmt}">
                             <div style="font-size:11px; margin-bottom:4px; color:#555;">Val: <b>${d.oAmt}</b> | Exp Qty: <b>${d.oQty}</b></div>
                             Amt Rec: <b>${d.amtRec || '0'}</b><br>Qty Rec: <b>${d.recQty || '0'}</b>
@@ -1620,7 +1653,7 @@
                 }
 
                 return `<tr id="safety-row-${d.uid}" style="${rowColor}">
-                    <td>${d.delDate||'-'}</td>
+                    <td>${fmtDate(d.delDate)}</td>
                     <td style="font-size:12px;"><b>SKU: ${d.sku || '-'}</b><br><b>${d.orderId}</b><br>${d.trackingId}<br>ASIN: ${d.asin}</td>
                     <td style="font-weight:bold;">${d.conditionLog}</td>
                     ${contentHtml}
@@ -1706,6 +1739,10 @@
                 const dynCid = document.getElementById(`cid-${uid}`);
                 const dynCDate = document.getElementById(`cdate-${uid}`);
                 let vClaim = claimType === 'claimId' ? (dynCid ? dynCid.value : (d.claimId||"")) : (dynCDate ? dynCDate.value : (d.claimDate||""));
+                
+                // If it's a date being searched, check formatted value too
+                if (claimType === 'claimDate') vClaim = fmtDate(vClaim);
+                
                 vClaim = vClaim.toString().toUpperCase();
                 let mClaim = claimVals.length === 0 || claimVals.includes(vClaim);
 
@@ -1720,7 +1757,9 @@
                 else row.style.display = "none";
 
                 if (mDate && mCond && mStatus && mClaim && mVal) aSearch.add(d[searchType]);
-                if (mDate && mCond && mStatus && mSearch && mVal) aClaim.add(claimType === 'claimId' ? d.claimId : d.claimDate);
+                if (mDate && mCond && mStatus && mSearch && mVal) {
+                    aClaim.add(claimType === 'claimId' ? d.claimId : fmtDate(d.claimDate));
+                }
                 if (mDate && mCond && mStatus && mSearch && mClaim) aVal.add(valType === 'amtRec' ? (dynAmt?dynAmt.value:d.amtRec) : (valType === 'recQty' ? (dynQty?dynQty.value:d.recQty) : d[valType]));
             }
 
@@ -1886,15 +1925,15 @@
 
             let template = userTemplates[cond] || "";
             let msg = template
-                .replace(/\[ORDER_ID\]/gi, item.orderId || '')
+                .replace(/\[ORDER_ID\]|\[ORDER ID\]/gi, item.orderId || '')
                 .replace(/\[ASIN\]/gi, item.asin || '')
-                .replace(/\[PRODUCT_TITLE\]/gi, item.sku || '')
+                .replace(/\[PRODUCT_TITLE\]|\[PRODUCT TITLE\]/gi, item.sku || '')
                 .replace(/\[SKU\]/gi, item.sku || '')
-                .replace(/\[TRACKING_ID\]/gi, item.trackingId || '')
-                .replace(/\[EXP_QTY\]/gi, item.oQty || '')
+                .replace(/\[TRACKING_ID\]|\[TRACKING ID\]/gi, item.trackingId || '')
+                .replace(/\[EXP_QTY\]|\[EXP QTY\]/gi, item.oQty || '')
                 .replace(/\[QTY\]/gi, item.oQty || '')
-                .replace(/\[REC_QTY\]/gi, item.recQty || '')
-                .replace(/\[ORDER_AMT\]/gi, item.oAmt || '');
+                .replace(/\[REC_QTY\]|\[REC QTY\]/gi, item.recQty || '')
+                .replace(/\[ORDER_AMT\]|\[ORDER AMT\]/gi, item.oAmt || '');
 
             document.getElementById('generatedMsgText').value = msg;
             document.getElementById('msgOutputArea').style.display = 'block';
@@ -2076,7 +2115,7 @@
 
                 return `<tr id="ag-row-${elId}" style="${bg}">
                     <td><input type="checkbox" class="aging-cb" value="${elId}" data-uids="${uids}"></td>
-                    <td>${group.reqDate}</td>
+                    <td>${fmtDate(group.reqDate)}</td>
                     <td style="font-size:12px;">
                         <b>${group.orderId}</b><br>
                         ASIN: ${group.asin}<br>
@@ -2408,7 +2447,7 @@
             let dupWarn = isMultiple ? `<br><span style="color:#d39e00; font-size:10px; font-weight:bold;">⚠️ MULTIPLE TRACKINGS</span>` : ``;
 
             let trackAsinHtml = items.map(d => `<div style="padding:4px 0;"><b>Trk:</b> ${d.trackingId} <br><b>ASIN:</b> ${d.asin}<br><b>SKU:</b> ${d.sku}</div>`).join('<hr style="margin:0; border-top:1px solid #ccc;">');
-            let datesHtml = items.map(d => `<div style="padding:4px 0;">Ord: ${d.orderDate||'-'}<br>Req: ${d.reqDate}<br>Del: ${d.delDate||'-'}<br>Claim: ${isEditing ? `<input type="text" id="em-cid-${d.uid}" value="${d.claimId}" style="width:70px; margin-bottom:2px;"><br><input type="date" id="em-cdate-${d.uid}" value="${d.claimDate}" style="width:100px;">` : (d.claimDate||'-')}</div>`).join('<hr style="margin:0; border-top:1px solid #ccc;">');
+            let datesHtml = items.map(d => `<div style="padding:4px 0;">Ord: ${fmtDate(d.orderDate)}<br>Req: ${fmtDate(d.reqDate)}<br>Del: ${fmtDate(d.delDate)}<br>Claim: ${isEditing ? `<input type="text" id="em-cid-${d.uid}" value="${d.claimId}" style="width:70px; margin-bottom:2px;"><br><input type="date" id="em-cdate-${d.uid}" value="${d.claimDate}" style="width:100px;">` : fmtDate(d.claimDate)}</div>`).join('<hr style="margin:0; border-top:1px solid #ccc;">');
             let valQtyHtml = items.map(d => `<div style="padding:4px 0;">Val: <b>${d.oAmt}</b><br>Exp Qty: ${d.oQty}</div>`).join('<hr style="margin:0; border-top:1px solid #ccc;">');
             
             let statCondHtml = items.map(d => {
@@ -2643,7 +2682,7 @@
             
             dataToExport.forEach(d => {
                 const safeReason = (d.amzReason || "").replace(/,/g, " ");
-                csv += `"${d.orderId}","${d.orderDate||''}","${d.trackingId}","${d.asin}","${d.sku}","${d.reqDate}","${d.delDate||''}","${safeReason}","${d.oAmt}","${d.oQty}","${d.recQty}","${d.status}","${d.conditionLog}","${d.claimStatus}","${d.claimId||''}","${d.claimDate||''}","${d.amtRec||''}"\n`;
+                csv += `"${d.orderId}","${fmtDate(d.orderDate)}","${d.trackingId}","${d.asin}","${d.sku}","${fmtDate(d.reqDate)}","${fmtDate(d.delDate)}","${safeReason}","${d.oAmt}","${d.oQty}","${d.recQty}","${d.status}","${d.conditionLog}","${d.claimStatus}","${d.claimId||''}","${fmtDate(d.claimDate)}","${d.amtRec||''}"\n`;
             });
 
             const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -2698,11 +2737,9 @@
                                 if (cols.length > idx) {
                                     let v = safeGet(idx);
                                     
-                                    if (isDate && v && !/^\d{4}-\d{2}-\d{2}$/.test(v)) {
-                                        let d = new Date(v);
-                                        if (!isNaN(d.getTime())) {
-                                            v = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-                                        }
+                                    if (isDate && v) {
+                                        // Standardize incoming dates to yyyy-mm-dd
+                                        v = standardizeToYYYYMMDD(v);
                                     }
                                     
                                     if (v !== '' && v !== (item[key] || '')) {
