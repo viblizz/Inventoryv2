@@ -129,7 +129,7 @@
             
             <button class="btn" onclick="window.saveMasterStock()">Update Warehouse DB</button>
             <span id="stockSuccessMsg" style="color: #28a745; font-weight: bold; margin-left: 15px; display: none;">✔️ Stock Updated!</span>
-            <p style="font-size: 11px; color: gray;">*Note: Adjusting total stock here will automatically balance your 'Warehouse' bucket in the Locations tab.</p>
+            <p style="font-size: 11px; color: gray;">*Note: Any stock added here goes directly to your 'Warehouse' bucket in the Locations tab.</p>
         </div>
 
         <div class="section-box" style="background-color: #e3f2fd; border-color: #90caf9;">
@@ -169,7 +169,7 @@
 
     <div id="StockLocations" class="tabcontent">
         <h3>Detailed Stock Locations</h3>
-        <p style="color: #666; font-size: 13px;">Master Stock is the source of truth. Enter your Rack units below, and <b>Warehouse</b> will automatically calculate the balance.</p>
+        <p style="color: #666; font-size: 13px;">Manage your physical stock across locations. <b>Total Master Stock</b> is automatically calculated as: <b>Rack + Warehouse</b>.</p>
         
         <div class="section-box bulk-box action-bar" style="margin-bottom: 20px;">
             <button class="btn btn-info" onclick="window.downloadLocationsTemplate()">⬇️ Download Locations Template</button>
@@ -184,8 +184,8 @@
                     <tr>
                         <th>Master SKU</th>
                         <th style="background-color:#fff3cd; color:#856404;">Rack Stock (Manual)</th>
-                        <th style="background-color:#eef2f5; color:#0c5460;">Warehouse Stock (Auto-Balance)</th>
-                        <th style="background-color:#007bff; color:white;">Total Master Stock</th>
+                        <th style="background-color:#eef2f5; color:#0c5460;">Warehouse Stock (Manual)</th>
+                        <th style="background-color:#007bff; color:white;">Total Master Stock (Auto)</th>
                         <th>Action</th>
                     </tr>
                 </thead>
@@ -250,7 +250,7 @@
                 <button class="btn" onclick="window.processOrderFile()">Process Orders & Sync to Cloud</button>
                 <button class="btn btn-warning" onclick="window.reverseOrderFile()">⏪ Reverse This File (Undo Mistake)</button>
             </div>
-            <p style="font-size: 12px; color: #666; margin-top: 10px;">* Orders processed here are automatically logged directly into the <b>Order History Ledger</b>.</p>
+            <p style="font-size: 12px; color: #666; margin-top: 10px;">* Orders processed here deduct from Rack first, then Warehouse. Logs directly to <b>Order History Ledger</b>.</p>
         </div>
         
         <div class="table-responsive"><table id="tblOrderProcessing"><thead><tr><th>Master SKU</th><th>Opening Stock</th><th>Action Processed</th><th>Closing Stock</th></tr></thead><tbody id="orderTableBody"></tbody></table></div>
@@ -284,10 +284,10 @@
 
     <div id="PricingSystem" class="tabcontent">
         <h3>SKU Pricing & Profit Calculator</h3>
-        <p style="color: #666; font-size: 13px;">Upload your <b>All Listings Report</b> here to fetch SKUs and auto-update your Current Selling Prices.</p>
+        <p style="color: #666; font-size: 13px;">Upload your <b>All Listings Report</b> in ASIN Mapping to fetch SKUs and auto-update your Current Selling Prices.</p>
         
         <div class="section-box">
-            <label>Update Pricing SKUs & Selling Prices (Upload "All Listings Report"):</label>
+            <label>Update Pricing SKUs & Selling Prices (Upload "All Listings Report" here too if needed):</label>
             <div class="action-bar" style="margin-top: 10px;">
                 <input type="file" id="pricingReportFile" accept=".txt, .csv, .tsv, .xlsx" class="inline-input" style="width: auto;">
                 <button class="btn" onclick="window.processPricingReport()">Load SKUs & Fetch Live Prices</button>
@@ -373,7 +373,7 @@
 
     <div id="StockTally" class="tabcontent">
         <h3>ASIN & Master SKU Stock Tally</h3>
-        <p style="color: #666; font-size: 13px;">Track total units purchased (Current Stock + Units Sold) and filter by date to see order activity.</p>
+        <p style="color: #666; font-size: 13px;">Track total units ever purchased and filter by date to see order activity. Current Stock = Purchased - Sold.</p>
         
         <div class="section-box" style="display: flex; gap: 15px; align-items: flex-end; margin-bottom: 15px; background: #f3e5f5; border-color: #ce93d8;">
             <div>
@@ -414,7 +414,7 @@
                         <th>Linked ASIN(s)</th>
                         <th style="background-color:#d4edda; color:#155724;">Total Purchased (Added)</th>
                         <th style="background-color:#f8d7da; color:#721c24;">Units Sold (Deducted)</th>
-                        <th style="background-color:#d1ecf1; color:#0c5460;">Current Stock (Rack+WH)</th>
+                        <th style="background-color:#d1ecf1; color:#0c5460;">Current Stock (Auto)</th>
                     </tr>
                 </thead>
                 <tbody id="stockTallyTableBody"></tbody>
@@ -425,9 +425,8 @@
 </div>
 
 <script type="module">
-    // --- UPDATED FIREBASE IMPORTS (FIX FOR THE "CONNECTING" ISSUE) ---
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-    import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-app.js";
+    import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-database.js";
 
     // Global states
     window.tableFiltersState = {}; 
@@ -448,14 +447,14 @@
     window.executeBulkSave = async function() {
         let db = getDB();
 
-        // Save Locations (Do not alter Master Stock! WH is purely calculated)
+        // Save Locations (Rack + WH now dictate Master)
         document.querySelectorAll('input[id^="loc_rack_"]').forEach(inp => {
             let sku = inp.id.replace('loc_rack_', '');
             let r = parseInt(document.getElementById(`loc_rack_${sku}`).value) || 0;
-            let total = db.masters[sku] || 0;
-            let w = total - r;
+            let w = parseInt(document.getElementById(`loc_wh_${sku}`).value) || 0;
 
             db.locations[sku] = { rack: r, wh: w };
+            db.masters[sku] = r + w; // Updates master total automatically
         });
 
         // Save ASIN Mapping
@@ -976,18 +975,13 @@
         
         let diff = action === "add" ? stockInput : (stockInput - (db.masters[sku] || 0));
 
-        if (action === "add") { 
-            db.masters[sku] = (db.masters[sku] || 0) + stockInput; 
-        } else { 
-            db.masters[sku] = stockInput; 
-        }
+        // NEW LOGIC: Any additions/subtractions happen in the Warehouse Bucket
+        db.locations[sku].wh = (db.locations[sku].wh || 0) + diff;
+        
+        // Master total is updated to reflect the new Rack + WH total
+        db.masters[sku] = (db.locations[sku].rack || 0) + db.locations[sku].wh;
         
         db.purchasePrices[sku] = purchasePrice;
-
-        // Auto balance Warehouse to equal Master Stock
-        if(db.locations[sku]) {
-            db.locations[sku].wh = db.masters[sku] - (db.locations[sku].rack || 0);
-        }
 
         // Log Purchase Addition for the Tally Report
         if(!db.purchaseHistory) db.purchaseHistory = [];
@@ -1190,15 +1184,14 @@
     };
 
     // --- TAB 2: STOCK LOCATIONS ---
-    window.updateWHBalance = function(sku) {
-        let total = window.cloudDB.masters[sku] || 0;
+    window.updateTotalBalance = function(sku) {
         let r = parseInt(document.getElementById(`loc_rack_${sku}`).value) || 0;
-        let w = total - r;
+        let w = parseInt(document.getElementById(`loc_wh_${sku}`).value) || 0;
+        let total = r + w;
         
-        let whEl = document.getElementById(`loc_wh_display_${sku}`);
-        if(whEl) {
-            whEl.innerText = w;
-            whEl.style.color = w < 0 ? "red" : "#0c5460";
+        let totalEl = document.getElementById(`loc_total_display_${sku}`);
+        if(totalEl) {
+            totalEl.innerText = total;
         }
     };
 
@@ -1231,14 +1224,15 @@
                 let row = normalizeRow(rawRow);
                 let sku = row["MASTER SKU"] || row["MASTERSKU"];
                 let rack = parseInt(row["RACK STOCK"] || row["RACK"] || 0);
+                let wh = parseInt(row["WAREHOUSE STOCK"] || row["WAREHOUSE"] || 0);
 
                 if (sku) {
                     sku = sku.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_");
                     if (db.masters[sku] !== undefined) {
                         let r = isNaN(rack) ? 0 : rack;
-                        let w = db.masters[sku] - r; // Calculate Warehouse Balance
+                        let w = isNaN(wh) ? 0 : wh;
                         db.locations[sku] = { rack: r, wh: w };
-                        // DO NOT UPDATE MASTER STOCK HERE. 
+                        db.masters[sku] = r + w; // Master is now exactly Rack + WH
                         count++;
                     }
                 }
@@ -1304,9 +1298,9 @@
                         </div>
                     </div>
                 </td>
-                <td><input type="number" id="loc_rack_${sku}" class="price-input" min="0" value="${locs.rack}" oninput="window.updateWHBalance('${sku}'); window.markEdit()"></td>
-                <td style="background-color:#eef2f5; font-weight:bold; font-size:14px; text-align:center; color:${locs.wh < 0 ? 'red' : '#0c5460'};" id="loc_wh_display_${sku}">${locs.wh}</td>
-                <td style="font-weight:bold; font-size:14px; ${isChildOf ? 'color:#17a2b8;' : ''}">${displayTotal}</td>
+                <td><input type="number" id="loc_rack_${sku}" class="price-input" min="0" value="${locs.rack}" oninput="window.updateTotalBalance('${sku}'); window.markEdit()"></td>
+                <td style="background-color:#eef2f5;"><input type="number" id="loc_wh_${sku}" class="price-input" min="0" value="${locs.wh}" oninput="window.updateTotalBalance('${sku}'); window.markEdit()"></td>
+                <td style="font-weight:bold; font-size:14px; ${isChildOf ? 'color:#17a2b8;' : ''}" id="loc_total_display_${sku}">${displayTotal}</td>
                 <td><button class="btn btn-small" onclick="window.saveLocations('${sku}')">Save</button></td>
             </tr>`;
         }
@@ -1348,12 +1342,10 @@
     window.saveLocations = async function(sku) {
         let db = getDB();
         let r = parseInt(document.getElementById(`loc_rack_${sku}`).value) || 0;
+        let w = parseInt(document.getElementById(`loc_wh_${sku}`).value) || 0;
         
-        let total = db.masters[sku] || 0;
-        let w = total - r; // Auto Calculate Warehouse Balance
-
         db.locations[sku] = { rack: r, wh: w };
-        // DO NOT change db.masters[sku] here. Master is the source of truth.
+        db.masters[sku] = r + w; // NEW: Master is now exactly Rack + Warehouse
         
         window.hasUnsavedEdits = false;
         document.getElementById('globalBulkActionBar').style.display = 'none';
@@ -1369,13 +1361,38 @@
             let data = new Uint8Array(e.target.result); let workbook = XLSX.read(data, {type: 'array'});
             let json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
             let db = getDB(); let count = 0;
+            
             json.forEach(rawRow => {
-                let row = normalizeRow(rawRow); let asin = extractASIN(row); let sSku = extractSellerSKU(row); let title = row["ITEM-NAME"] || "No Title";
-                if(asin) { asin = asin.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_");
-                    if(!db.asins[asin]) { db.asins[asin] = {master: "", pack: 1, title: title, sellerSku: sSku}; count++; }
-                    else { if(db.asins[asin].title==="No Title") db.asins[asin].title=title; if(!db.asins[asin].sellerSku) db.asins[asin].sellerSku=sSku; }
+                let row = normalizeRow(rawRow); 
+                let asin = extractASIN(row); 
+                let sSku = extractSellerSKU(row); 
+                let title = row["ITEM-NAME"] || "No Title";
+                let filePrice = extractPrice(row); // Extract the price immediately
+
+                if(asin) { 
+                    asin = asin.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_");
+                    
+                    if(!db.asins[asin]) { 
+                        db.asins[asin] = {master: "", pack: 1, title: title, sellerSku: sSku}; 
+                        count++; 
+                    } else { 
+                        if(db.asins[asin].title==="No Title") db.asins[asin].title=title; 
+                        if(!db.asins[asin].sellerSku) db.asins[asin].sellerSku=sSku; 
+                    }
+
+                    // Push the selling price directly to the Pricing System
+                    if (sSku) {
+                        sSku = sSku.toString().trim().replace(/[.#$\[\]\/]/g, "_");
+                        if (!db.pricingSKUs[sSku]) { 
+                            db.pricingSKUs[sSku] = { asin: asin, amzFee: 0, delFee: 0, packFee: 0, currSell: filePrice || 0, desSell: 0 }; 
+                        } else { 
+                            if (filePrice > 0) db.pricingSKUs[sSku].currSell = filePrice; 
+                        }
+                    }
                 }
-            }); await saveDB(db); alert(`${count} ASINs Loaded`);
+            }); 
+            await saveDB(db); 
+            alert(`${count} ASINs Loaded & Prices Sent to Pricing System!`);
         }; reader.readAsArrayBuffer(file);
     };
 
@@ -1547,22 +1564,21 @@
                     // 1. Deduct directly from Master Total
                     db.masters[mSku] = closing;
                     
-                    // 2. Cascade Deduction from Rack -> WH 
+                    // 2. Deduct from Rack first. If Rack hits 0, take from Warehouse.
                     if(db.locations[mSku]) {
                         let qtyToDeduct = deduction;
                         let rack = db.locations[mSku].rack || 0;
+                        let wh = db.locations[mSku].wh || 0;
 
-                        // Try to take from Rack first
                         if (rack >= qtyToDeduct) {
-                            rack -= qtyToDeduct;
+                            rack -= qtyToDeduct; // Take everything from rack
                             qtyToDeduct = 0;
                         } else {
-                            qtyToDeduct -= rack;
-                            rack = 0; // Rack bottoms out at 0
+                            qtyToDeduct -= rack; // Take what's left on rack
+                            rack = 0;            // Rack bottoms out safely at 0
                         }
 
-                        // Warehouse absorbs whatever is left (could go negative)
-                        let wh = closing - rack; 
+                        wh -= qtyToDeduct; // The remainder comes from warehouse
 
                         db.locations[mSku].rack = rack;
                         db.locations[mSku].wh = wh;
@@ -1679,7 +1695,7 @@
                 let row = normalizeRow(rawRow); let sellerSku = extractSellerSKU(row); let asin = extractASIN(row); let filePrice = extractPrice(row); 
                 if (sellerSku && asin) {
                     sellerSku = sellerSku.toString().trim().replace(/[.#$\[\]\/]/g, "_"); asin = asin.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_");
-                    if (!db.pricingSKUs[sellerSku]) { db.pricingSKUs[sellerSku] = { asin: asin, amzFee: 0, delFee: 0, packFee: 0, currSell: filePrice, desSell: 0 }; count++; } 
+                    if (!db.pricingSKUs[sellerSku]) { db.pricingSKUs[sellerSku] = { asin: asin, amzFee: 0, delFee: 0, packFee: 0, currSell: filePrice || 0, desSell: 0 }; count++; } 
                     else { db.pricingSKUs[sellerSku].asin = asin; if (filePrice > 0) db.pricingSKUs[sellerSku].currSell = filePrice; }
                 }
             }); await saveDB(db); alert(`${count} Seller SKUs added/updated!`);
@@ -1907,17 +1923,13 @@
 
         for (let mSku of activeMasters) {
             let sold = salesTally[mSku] || 0;
-            let purchased = 0;
-            let currentStock = db.masters[mSku] || 0;
-
-            if (filterType === "all") {
-                // If All Dates, Purchased = Current Stock (Rack+WH) + Lifetime Sold
-                purchased = currentStock + sold;
-            } else {
-                // If Date Range, use the history ledger for purchases in that window
-                purchased = purchaseTally[mSku] || 0;
-            }
             
+            // Purchased is ALWAYS the sum of history, not reverse-calculated
+            let purchased = purchaseTally[mSku] || 0; 
+            
+            // Current stock is simply what you bought minus what you sold
+            let calculatedCurrentStock = purchased - sold;
+
             // Collect all ASINs linked to this Master SKU to make it searchable
             let linkedAsins = [];
             for (let a in db.asins) {
@@ -1929,8 +1941,7 @@
             let asinDisplay = linkedAsins.join(", ") || "None";
 
             // Determine stock label to display
-            let stockDisplay = filterType === "all" ? currentStock : (purchased - sold);
-            let stockLabel = filterType === "all" ? currentStock : (stockDisplay > 0 ? '+'+stockDisplay : stockDisplay);
+            let stockLabel = calculatedCurrentStock > 0 ? '+'+calculatedCurrentStock : calculatedCurrentStock;
 
             html += `<tr>
                 <td><strong>${mSku}</strong></td>
