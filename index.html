@@ -246,7 +246,7 @@
                 <button class="btn" onclick="window.processOrderFile()">Process Orders & Sync to Cloud</button>
                 <button class="btn btn-warning" onclick="window.reverseOrderFile()">⏪ Reverse This File (Undo Mistake)</button>
             </div>
-            <p style="font-size: 12px; color: #666; margin-top: 10px;">* Orders processed here are automatically filtered for <b>Shipped/Delivered</b> status. The date is extracted from the file. Deducts from Rack first, then Warehouse. Logs directly to <b>Order History Ledger</b>.</p>
+            <p style="font-size: 12px; color: #666; margin-top: 10px;">* Orders processed here are automatically filtered for <b>Shipped/Delivered</b> status. The date is extracted from the file. Deducts from Rack first, then Warehouse, and updates Live Amazon stock. Logs directly to <b>Order History Ledger</b>.</p>
         </div>
         
         <div class="table-responsive"><table id="tblOrderProcessing"><thead><tr><th>Master SKU</th><th>Opening Stock</th><th>Action Processed</th><th>Closing Stock</th></tr></thead><tbody id="orderTableBody"></tbody></table></div>
@@ -680,7 +680,7 @@
         evt.currentTarget.classList.add("active");
     };
 
-    window.cloudDB = { masters: {}, asins: {}, sales: {}, purchasePrices: {}, pricingSKUs: {}, processedOrders: {}, purchaseHistory: [], locations: {}, ledger: {}, skuGroups: {} };
+    window.cloudDB = { masters: {}, asins: {}, sales: {}, purchasePrices: {}, pricingSKUs: {}, processedOrders: {}, purchaseHistory: [], locations: {}, ledger: {}, skuGroups: {}, liveAmazonStock: {} };
     function getDB() { return JSON.parse(JSON.stringify(window.cloudDB)); }
 
     // --- FIREBASE SETUP ---
@@ -715,7 +715,8 @@
             window.cloudDB.purchaseHistory = data.purchaseHistory || [];
             window.cloudDB.locations = data.locations || {};
             window.cloudDB.ledger = data.ledger || {};
-            window.cloudDB.skuGroups = data.skuGroups || {}; // ADDED FOR MANUAL GROUPING
+            window.cloudDB.skuGroups = data.skuGroups || {}; 
+            window.cloudDB.liveAmazonStock = data.liveAmazonStock || {}; // NEW: Sync live stock
 
             for(let sku in window.cloudDB.masters) {
                 if(!window.cloudDB.locations[sku]) {
@@ -752,13 +753,14 @@
         window.renderMasterStockTable();
         window.renderLocationsTable();
         window.renderASINMappingTable();
+        window.renderInventoryTable(); // NEW: Render saved Live Sync data
         window.renderSalesAlertsTable();
         window.renderPricingTable(); 
         window.renderOrderHistoryTable();
         window.renderTallyTable();
         window.updateSKUSuggestions();
-        window.populateGroupDropdowns(); // Update manual grouping dropdowns
-        window.renderExistingGroups();   // Render the list of groups
+        window.populateGroupDropdowns(); 
+        window.renderExistingGroups();   
     }
 
     // UTILS
@@ -1132,6 +1134,8 @@
         if (db.sales[oldSku]) { db.sales[newSku] = db.sales[oldSku]; delete db.sales[oldSku]; }
         if (db.purchasePrices[oldSku]) { db.purchasePrices[newSku] = db.purchasePrices[oldSku]; delete db.purchasePrices[oldSku]; }
         if (db.locations[oldSku]) { db.locations[newSku] = db.locations[oldSku]; delete db.locations[oldSku]; }
+        if (db.liveAmazonStock && db.liveAmazonStock[oldSku]) { db.liveAmazonStock[newSku] = db.liveAmazonStock[oldSku]; delete db.liveAmazonStock[oldSku]; } // NEW
+        
         for (let asin in db.asins) { if (db.asins[asin].master === oldSku) db.asins[asin].master = newSku; }
         for (let date in db.ledger) { if(db.ledger[date][oldSku]) { db.ledger[date][newSku] = db.ledger[date][oldSku]; delete db.ledger[date][oldSku]; } }
         
@@ -1161,7 +1165,9 @@
 
     window.deleteMaster = async function(sku) {
         if(!confirm(`Delete Master SKU: ${sku}?`)) return;
-        let db = getDB(); delete db.masters[sku]; delete db.sales[sku]; delete db.purchasePrices[sku]; delete db.locations[sku];
+        let db = getDB(); 
+        delete db.masters[sku]; delete db.sales[sku]; delete db.purchasePrices[sku]; delete db.locations[sku];
+        if(db.liveAmazonStock) delete db.liveAmazonStock[sku];
         
         if(db.purchaseHistory) {
             db.purchaseHistory = db.purchaseHistory.filter(p => p.master !== sku);
@@ -1482,26 +1488,45 @@
         await saveDB(db);
     };
 
-    // --- TAB 4: INVENTORY STATUS ---
+    // --- TAB 4: INVENTORY STATUS (LIVE SYNC) ---
     window.processInventoryFile = function() {
         let file = document.getElementById('amazonInventoryFile').files[0]; if(!file) return alert("Select file!");
         let reader = new FileReader();
-        reader.onload = function(e) {
+        reader.onload = async function(e) {
             let data = new Uint8Array(e.target.result); let workbook = XLSX.read(data, {type: 'array'});
             let json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
-            let db = getDB(); let liveMasterStock = {}; 
+            let db = getDB(); 
+            
+            let newLiveStockSnapshot = {}; 
+            
             json.forEach(rawRow => {
                 let row = normalizeRow(rawRow); let asin = extractASIN(row); let qty = extractQuantity(row);
-                if(asin && qty !== undefined) { asin = asin.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_"); let mapping = db.asins[asin]; if (mapping && mapping.master) { liveMasterStock[mapping.master] = (liveMasterStock[mapping.master] || 0) + (qty * mapping.pack); } }
+                if(asin && qty !== undefined) { 
+                    asin = asin.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_"); 
+                    let mapping = db.asins[asin]; 
+                    if (mapping && mapping.master) { 
+                        newLiveStockSnapshot[mapping.master] = (newLiveStockSnapshot[mapping.master] || 0) + (qty * mapping.pack); 
+                    } 
+                }
             });
-            let html = "";
-            for (let mSku in db.masters) { html += `<tr><td><strong>${mSku}</strong></td><td style="color:blue; font-weight:bold;">${liveMasterStock[mSku] || 0}</td><td>${db.masters[mSku]}</td></tr>`; }
-            let tbody = document.getElementById("inventoryTableBody"); 
-            if(tbody) {
-                tbody.innerHTML = html;
-                setTimeout(() => window.buildTableFilters("tblInventoryStatus"), 50);
-            }
+            
+            db.liveAmazonStock = newLiveStockSnapshot; // Overwrite snapshot and sync to cloud
+            await saveDB(db);
+            alert("Amazon Live Inventory Synced and Saved to Cloud!");
         }; reader.readAsArrayBuffer(file);
+    };
+
+    window.renderInventoryTable = function() {
+        let db = getDB(); let html = "";
+        for (let mSku in db.masters) { 
+            let liveStock = db.liveAmazonStock ? (db.liveAmazonStock[mSku] || 0) : 0;
+            html += `<tr><td><strong>${mSku}</strong></td><td style="color:blue; font-weight:bold;">${liveStock}</td><td>${db.masters[mSku]}</td></tr>`; 
+        }
+        let tbody = document.getElementById("inventoryTableBody"); 
+        if(tbody) {
+            tbody.innerHTML = html;
+            setTimeout(() => window.buildTableFilters("tblInventoryStatus"), 50);
+        }
     };
 
     // --- TAB 5: DAILY ORDERS & DIRECT LEDGER UPDATE ---
@@ -1592,10 +1617,15 @@
                 
                 html += `<tr><td><strong>${mSku}</strong></td><td>${opening}</td><td style="color:red; font-weight:bold;">- ${deduction}</td><td style="color:green; font-weight:bold;">${closing}</td></tr>`; 
                 
-                // Deduct directly from Master Total
+                // 1. Deduct directly from Master Total
                 db.masters[mSku] = closing;
+
+                // 2. NEW: Deduct from Live Amazon Stock to keep it accurate
+                if (db.liveAmazonStock && db.liveAmazonStock[mSku] !== undefined) {
+                    db.liveAmazonStock[mSku] = Math.max(0, db.liveAmazonStock[mSku] - deduction);
+                }
                 
-                // Deduct from Rack first. If Rack hits 0, take from Warehouse.
+                // 3. Deduct from Rack first. If Rack hits 0, take from Warehouse.
                 if(db.locations[mSku]) {
                     let qtyToDeduct = deduction;
                     let rack = db.locations[mSku].rack || 0;
@@ -1664,8 +1694,13 @@
                 
                 // 1. Add back directly to Master
                 db.masters[mSku] = closing;
+
+                // 2. Add back to Live Amazon Stock
+                if (db.liveAmazonStock && db.liveAmazonStock[mSku] !== undefined) {
+                    db.liveAmazonStock[mSku] = db.liveAmazonStock[mSku] + revertQty;
+                }
                 
-                // 2. Adjust Warehouse to balance
+                // 3. Adjust Warehouse to balance
                 if(db.locations[mSku]) {
                     db.locations[mSku].wh = db.masters[mSku] - (db.locations[mSku].rack || 0);
                 }
@@ -1956,11 +1991,16 @@
 
         for (let mSku of activeMasters) {
             let sold = salesTally[mSku] || 0;
-            
-            // Purchased is ALWAYS the sum of history, not reverse-calculated
             let purchased = purchaseTally[mSku] || 0; 
             
-            // Current stock is simply what you bought minus what you sold
+            let currentKnownStock = db.masters[mSku] || 0;
+
+            // NEW: Fallback logic for old items added before history tracking existed
+            // Total Purchased = Current Stock + Total Sold
+            if (purchased === 0 && (currentKnownStock > 0 || sold > 0)) {
+                purchased = currentKnownStock + sold;
+            }
+
             let calculatedCurrentStock = purchased - sold;
 
             // Collect all ASINs linked to this Master SKU to make it searchable
