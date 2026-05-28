@@ -236,10 +236,6 @@
         <h3>Process Daily Orders & Deduct Stock</h3>
         <div class="section-box">
             <div style="display: flex; gap: 15px; margin-bottom: 15px; align-items: flex-end;">
-                <div style="flex: 1;">
-                    <label>Processing Date <span style="color:red">*</span>:</label>
-                    <input type="date" id="orderProcessDate" style="margin-bottom: 0;" required>
-                </div>
                 <div style="flex: 2;">
                     <label>Upload Daily Sales / Business Report (.csv or .txt):</label>
                     <input type="file" id="dailyOrderFile" accept=".csv, .xlsx, .txt" style="margin-bottom: 0;">
@@ -250,7 +246,7 @@
                 <button class="btn" onclick="window.processOrderFile()">Process Orders & Sync to Cloud</button>
                 <button class="btn btn-warning" onclick="window.reverseOrderFile()">⏪ Reverse This File (Undo Mistake)</button>
             </div>
-            <p style="font-size: 12px; color: #666; margin-top: 10px;">* Orders processed here deduct from Rack first, then Warehouse. Logs directly to <b>Order History Ledger</b>.</p>
+            <p style="font-size: 12px; color: #666; margin-top: 10px;">* Orders processed here are automatically filtered for <b>Shipped/Delivered</b> status. The date is extracted from the file. Deducts from Rack first, then Warehouse. Logs directly to <b>Order History Ledger</b>.</p>
         </div>
         
         <div class="table-responsive"><table id="tblOrderProcessing"><thead><tr><th>Master SKU</th><th>Opening Stock</th><th>Action Processed</th><th>Closing Stock</th></tr></thead><tbody id="orderTableBody"></tbody></table></div>
@@ -1510,39 +1506,60 @@
 
     // --- TAB 5: DAILY ORDERS & DIRECT LEDGER UPDATE ---
     window.processOrderFile = function() {
-        let dateInput = document.getElementById('orderProcessDate').value;
-        if (!dateInput) return alert("⚠️ Please select a Processing Date first!");
-
-        let file = document.getElementById('dailyOrderFile').files[0]; if(!file) return alert("Select Business/Order file!");
+        let file = document.getElementById('dailyOrderFile').files[0]; 
+        if(!file) return alert("Select Business/Order file!");
         
         let reader = new FileReader();
         reader.onload = async function(e) {
-            let data = new Uint8Array(e.target.result); let workbook = XLSX.read(data, {type: 'array'});
+            let data = new Uint8Array(e.target.result); 
+            let workbook = XLSX.read(data, {type: 'array'});
             let json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
             let db = getDB(); 
-            let deductedStock = {}; let totalDeductionsFound = 0;
-            let processedOrders = db.processedOrders || {}; 
             
-            let todayDate = dateInput;
+            let processedOrders = db.processedOrders || {}; 
+            let totalDeductionsFound = 0;
+
+            // Group deductions chronologically by Date, then by SKU
+            let dailyDeductions = {}; 
+            let totalDeductedStock = {}; 
 
             json.forEach(rawRow => {
-                let row = normalizeRow(rawRow); let asin = extractASIN(row); let ordered = extractOrders(row); let orderId = extractOrderID(row); 
+                let row = normalizeRow(rawRow); 
+                let asin = extractASIN(row); 
+                // Fallback to "QUANTITY" column used in All Orders reports
+                let ordered = extractOrders(row) || parseInt(row["QUANTITY"] || 0); 
+                let orderId = extractOrderID(row); 
                 
-                if(asin && ordered > 0) { 
+                // Extract Status & Date from the Amazon Report
+                let rawStatus = (row["ORDER-STATUS"] || row["ORDER STATUS"] || "").toUpperCase();
+                let rawDate = row["PURCHASE-DATE"] || row["PURCHASE DATE"] || row["DATE"];
+                
+                // Format Date accurately to YYYY-MM-DD
+                let orderDate = rawDate ? rawDate.toString().split('T')[0].split(' ')[0] : null;
+
+                // Validate: Must contain SHIPPED and must NOT be a return
+                let isShippedOrDelivered = rawStatus.includes('SHIPPED') && !rawStatus.includes('RETURNING');
+                
+                if(asin && ordered > 0 && orderDate && isShippedOrDelivered) { 
                     asin = asin.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_"); 
                     
                     let uniqueKey = orderId ? `${orderId}_${asin}` : `NO_ID_${Date.now()}_${Math.random()}`;
 
                     if (!processedOrders[uniqueKey]) {
-                        
                         let mapping = db.asins[asin]; 
                         if (mapping && mapping.master) { 
                             let totalQtyDeducted = (ordered * mapping.pack);
-                            deductedStock[mapping.master] = (deductedStock[mapping.master] || 0) + totalQtyDeducted; 
+                            
+                            // 1. Group daily totals for Sales Trends
+                            if (!dailyDeductions[orderDate]) dailyDeductions[orderDate] = {};
+                            dailyDeductions[orderDate][mapping.master] = (dailyDeductions[orderDate][mapping.master] || 0) + totalQtyDeducted;
+
+                            // 2. Group grand totals for the UI display & physical stock deduction
+                            totalDeductedStock[mapping.master] = (totalDeductedStock[mapping.master] || 0) + totalQtyDeducted; 
                             totalDeductionsFound++; 
                             
                             processedOrders[uniqueKey] = {
-                                date: todayDate,
+                                date: orderDate,
                                 orderId: orderId || "N/A",
                                 master: mapping.master,
                                 asin: asin,
@@ -1552,47 +1569,63 @@
                     }
                 }
             });
-            if (totalDeductionsFound === 0) return alert("Notice: No new valid orders found (or all were duplicates).");
             
+            if (totalDeductionsFound === 0) return alert("Notice: No new valid shipped/delivered orders found (or all were duplicates/unmapped).");
+            
+            // Process Sales Trends (Chronologically append to db.sales)
+            let sortedDates = Object.keys(dailyDeductions).sort((a, b) => new Date(a) - new Date(b));
+            sortedDates.forEach(date => {
+                for (let mSku in dailyDeductions[date]) {
+                    let deduction = dailyDeductions[date][mSku];
+                    if(!db.sales[mSku]) db.sales[mSku] = []; 
+                    db.sales[mSku].push(deduction); 
+                    if(db.sales[mSku].length > 3) db.sales[mSku].shift(); 
+                }
+            });
+
+            // Process Stock Deductions & Build UI Table
             let html = "";
-            for (let mSku in db.masters) {
-                let deduction = deductedStock[mSku] || 0; let opening = db.masters[mSku]; let closing = opening - deduction;
-                if(deduction > 0) {
-                    if(!db.sales[mSku]) db.sales[mSku] = []; db.sales[mSku].push(deduction); if(db.sales[mSku].length > 3) db.sales[mSku].shift(); 
-                    html += `<tr><td><strong>${mSku}</strong></td><td>${opening}</td><td style="color:red; font-weight:bold;">- ${deduction}</td><td style="color:green; font-weight:bold;">${closing}</td></tr>`; 
-                    
-                    // 1. Deduct directly from Master Total
-                    db.masters[mSku] = closing;
-                    
-                    // 2. Deduct from Rack first. If Rack hits 0, take from Warehouse.
-                    if(db.locations[mSku]) {
-                        let qtyToDeduct = deduction;
-                        let rack = db.locations[mSku].rack || 0;
-                        let wh = db.locations[mSku].wh || 0;
+            for (let mSku in totalDeductedStock) {
+                let deduction = totalDeductedStock[mSku]; 
+                let opening = db.masters[mSku] || 0; 
+                let closing = opening - deduction;
+                
+                html += `<tr><td><strong>${mSku}</strong></td><td>${opening}</td><td style="color:red; font-weight:bold;">- ${deduction}</td><td style="color:green; font-weight:bold;">${closing}</td></tr>`; 
+                
+                // Deduct directly from Master Total
+                db.masters[mSku] = closing;
+                
+                // Deduct from Rack first. If Rack hits 0, take from Warehouse.
+                if(db.locations[mSku]) {
+                    let qtyToDeduct = deduction;
+                    let rack = db.locations[mSku].rack || 0;
+                    let wh = db.locations[mSku].wh || 0;
 
-                        if (rack >= qtyToDeduct) {
-                            rack -= qtyToDeduct; // Take everything from rack
-                            qtyToDeduct = 0;
-                        } else {
-                            qtyToDeduct -= rack; // Take what's left on rack
-                            rack = 0;            // Rack bottoms out safely at 0
-                        }
-
-                        wh -= qtyToDeduct; // The remainder comes from warehouse
-
-                        db.locations[mSku].rack = rack;
-                        db.locations[mSku].wh = wh;
+                    if (rack >= qtyToDeduct) {
+                        rack -= qtyToDeduct; 
+                        qtyToDeduct = 0;
+                    } else {
+                        qtyToDeduct -= rack; 
+                        rack = 0;            
                     }
+
+                    wh -= qtyToDeduct; 
+
+                    db.locations[mSku].rack = rack;
+                    db.locations[mSku].wh = wh;
                 }
             }
+            
             db.processedOrders = processedOrders; 
             let tbody = document.getElementById("orderTableBody"); 
             if(tbody) {
                 tbody.innerHTML = html;
                 setTimeout(() => window.buildTableFilters("tblOrderProcessing"), 50);
             }
-            await saveDB(db); alert("Orders Deducted, Ledger Updated & Synced to Cloud!");
-        }; reader.readAsArrayBuffer(file);
+            await saveDB(db); 
+            alert(`Orders Deducted! Successfully processed ${totalDeductionsFound} units from shipped/delivered orders.`);
+        }; 
+        reader.readAsArrayBuffer(file);
     };
 
     window.reverseOrderFile = async function() {
@@ -1605,7 +1638,7 @@
             let db = getDB(); let revertedStock = {}; let totalRevertsFound = 0; let processedOrders = db.processedOrders || {};
             
             json.forEach(rawRow => {
-                let row = normalizeRow(rawRow); let asin = extractASIN(row); let ordered = extractOrders(row); let orderId = extractOrderID(row);
+                let row = normalizeRow(rawRow); let asin = extractASIN(row); let ordered = extractOrders(row) || parseInt(row["QUANTITY"] || 0); let orderId = extractOrderID(row);
                 
                 if(asin && ordered > 0) { 
                     asin = asin.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_"); 
