@@ -1977,31 +1977,43 @@
             }
         });
 
-        // 2. Tally Purchases (from purchaseHistory ledger)
+        // 2. Tally Purchases (from purchaseHistory ledger) - Ignore negative sync corrections
         let purchaseTally = {};
         (db.purchaseHistory || []).forEach(record => {
             if (isDateInRange(record.date)) {
                 let mSku = record.master;
-                purchaseTally[mSku] = (purchaseTally[mSku] || 0) + (record.qtyAdded || 0);
+                if (record.qtyAdded > 0) {
+                    purchaseTally[mSku] = (purchaseTally[mSku] || 0) + record.qtyAdded;
+                }
             }
         });
 
-        // Combine all unique Master SKUs that have activity in this period
-        let activeMasters = new Set([...Object.keys(salesTally), ...Object.keys(purchaseTally)]);
+        // Combine unique Master SKUs. If viewing 'All Dates', pull everything from db.masters directly.
+        let activeMastersSet = new Set([...Object.keys(salesTally), ...Object.keys(purchaseTally)]);
+        if (filterType === "all") {
+            Object.keys(db.masters).forEach(sku => activeMastersSet.add(sku));
+        }
+        let activeMasters = Array.from(activeMastersSet).sort();
 
         for (let mSku of activeMasters) {
             let sold = salesTally[mSku] || 0;
-            let purchased = purchaseTally[mSku] || 0; 
-            
             let currentKnownStock = db.masters[mSku] || 0;
+            let purchased = 0;
+            let calculatedCurrentStock = 0;
 
-            // NEW: Fallback logic for old items added before history tracking existed
-            // Total Purchased = Current Stock + Total Sold
-            if (purchased === 0 && (currentKnownStock > 0 || sold > 0)) {
+            if (filterType === "all") {
+                // TRUE LOGIC FOR ALL DATES: Bypass the messy history ledger. 
+                // Total Purchased is mathematically exactly (Current Stock + Total Sold)
                 purchased = currentKnownStock + sold;
+                calculatedCurrentStock = currentKnownStock;
+            } else {
+                // FOR DATE RANGES: Use the specific ledger additions minus sales for that period
+                purchased = purchaseTally[mSku] || 0; 
+                calculatedCurrentStock = purchased - sold;
             }
 
-            let calculatedCurrentStock = purchased - sold;
+            // Skip rendering if no activity in this date range (and not viewing 'all')
+            if (filterType !== "all" && purchased === 0 && sold === 0) continue;
 
             // Collect all ASINs linked to this Master SKU to make it searchable
             let linkedAsins = [];
@@ -2012,8 +2024,6 @@
             if (linkedAsins.length === 0 && asinBreakdown[mSku]) linkedAsins = Array.from(asinBreakdown[mSku]);
             
             let asinDisplay = linkedAsins.join(", ") || "None";
-
-            // Determine stock label to display
             let stockLabel = calculatedCurrentStock > 0 ? '+'+calculatedCurrentStock : calculatedCurrentStock;
 
             html += `<tr>
