@@ -229,7 +229,20 @@
             <input type="file" id="amazonInventoryFile" accept=".txt, .csv, .xlsx">
             <button class="btn" onclick="window.processInventoryFile()">Calculate Live Inventory</button>
         </div>
-        <div class="table-responsive"><table id="tblInventoryStatus"><thead><tr><th>Master SKU</th><th>Live on Amazon (Pack Adjusted)</th><th>Total Warehouse Stock</th></tr></thead><tbody id="inventoryTableBody"></tbody></table></div>
+        <div class="table-responsive">
+            <table id="tblInventoryStatus">
+                <thead>
+                    <tr>
+                        <th>Amazon SKU (Seller SKU)</th>
+                        <th>ASIN</th>
+                        <th style="background-color:#e3f2fd;">Live on Amazon</th>
+                        <th>Mapped Master SKU</th>
+                        <th>Total Warehouse Stock</th>
+                    </tr>
+                </thead>
+                <tbody id="inventoryTableBody"></tbody>
+            </table>
+        </div>
     </div>
 
     <div id="OrderProcessing" class="tabcontent">
@@ -1134,7 +1147,6 @@
         if (db.sales[oldSku]) { db.sales[newSku] = db.sales[oldSku]; delete db.sales[oldSku]; }
         if (db.purchasePrices[oldSku]) { db.purchasePrices[newSku] = db.purchasePrices[oldSku]; delete db.purchasePrices[oldSku]; }
         if (db.locations[oldSku]) { db.locations[newSku] = db.locations[oldSku]; delete db.locations[oldSku]; }
-        if (db.liveAmazonStock && db.liveAmazonStock[oldSku]) { db.liveAmazonStock[newSku] = db.liveAmazonStock[oldSku]; delete db.liveAmazonStock[oldSku]; } // NEW
         
         for (let asin in db.asins) { if (db.asins[asin].master === oldSku) db.asins[asin].master = newSku; }
         for (let date in db.ledger) { if(db.ledger[date][oldSku]) { db.ledger[date][newSku] = db.ledger[date][oldSku]; delete db.ledger[date][oldSku]; } }
@@ -1167,7 +1179,6 @@
         if(!confirm(`Delete Master SKU: ${sku}?`)) return;
         let db = getDB(); 
         delete db.masters[sku]; delete db.sales[sku]; delete db.purchasePrices[sku]; delete db.locations[sku];
-        if(db.liveAmazonStock) delete db.liveAmazonStock[sku];
         
         if(db.purchaseHistory) {
             db.purchaseHistory = db.purchaseHistory.filter(p => p.master !== sku);
@@ -1498,29 +1509,46 @@
             let db = getDB(); 
             
             let newLiveStockSnapshot = {}; 
+            let count = 0;
             
             json.forEach(rawRow => {
-                let row = normalizeRow(rawRow); let asin = extractASIN(row); let qty = extractQuantity(row);
-                if(asin && qty !== undefined) { 
-                    asin = asin.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_"); 
-                    let mapping = db.asins[asin]; 
-                    if (mapping && mapping.master) { 
-                        newLiveStockSnapshot[mapping.master] = (newLiveStockSnapshot[mapping.master] || 0) + (qty * mapping.pack); 
-                    } 
+                let row = normalizeRow(rawRow); 
+                let sSku = extractSellerSKU(row);
+                let asin = extractASIN(row); 
+                let qty = extractQuantity(row);
+                
+                if(sSku && qty !== undefined) { 
+                    sSku = sSku.toString().trim();
+                    asin = asin ? asin.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_") : "";
+                    newLiveStockSnapshot[sSku] = { qty: qty, asin: asin };
+                    count++;
                 }
             });
             
-            db.liveAmazonStock = newLiveStockSnapshot; // Overwrite snapshot and sync to cloud
+            db.liveAmazonStock = newLiveStockSnapshot; 
             await saveDB(db);
-            alert("Amazon Live Inventory Synced and Saved to Cloud!");
+            alert(`Synced ${count} Amazon SKUs to Cloud!`);
         }; reader.readAsArrayBuffer(file);
     };
 
     window.renderInventoryTable = function() {
         let db = getDB(); let html = "";
-        for (let mSku in db.masters) { 
-            let liveStock = db.liveAmazonStock ? (db.liveAmazonStock[mSku] || 0) : 0;
-            html += `<tr><td><strong>${mSku}</strong></td><td style="color:blue; font-weight:bold;">${liveStock}</td><td>${db.masters[mSku]}</td></tr>`; 
+        let liveStockData = db.liveAmazonStock || {};
+
+        for (let sSku in liveStockData) { 
+            let data = liveStockData[sSku];
+            let asin = data.asin;
+            let mapping = db.asins[asin];
+            let mSku = (mapping && mapping.master) ? mapping.master : "Not Mapped";
+            let whStock = (mapping && mapping.master && db.masters[mSku] !== undefined) ? db.masters[mSku] : "N/A";
+
+            html += `<tr>
+                <td><strong>${sSku}</strong></td>
+                <td>${asin || "N/A"}</td>
+                <td style="color:blue; font-weight:bold;">${data.qty}</td>
+                <td>${mSku}</td>
+                <td>${whStock}</td>
+            </tr>`; 
         }
         let tbody = document.getElementById("inventoryTableBody"); 
         if(tbody) {
@@ -1544,25 +1572,20 @@
             let processedOrders = db.processedOrders || {}; 
             let totalDeductionsFound = 0;
 
-            // Group deductions chronologically by Date, then by SKU
             let dailyDeductions = {}; 
             let totalDeductedStock = {}; 
 
             json.forEach(rawRow => {
                 let row = normalizeRow(rawRow); 
                 let asin = extractASIN(row); 
-                // Fallback to "QUANTITY" column used in All Orders reports
                 let ordered = extractOrders(row) || parseInt(row["QUANTITY"] || 0); 
                 let orderId = extractOrderID(row); 
                 
-                // Extract Status & Date from the Amazon Report
                 let rawStatus = (row["ORDER-STATUS"] || row["ORDER STATUS"] || "").toUpperCase();
                 let rawDate = row["PURCHASE-DATE"] || row["PURCHASE DATE"] || row["DATE"];
                 
-                // Format Date accurately to YYYY-MM-DD
                 let orderDate = rawDate ? rawDate.toString().split('T')[0].split(' ')[0] : null;
 
-                // Validate: Must contain SHIPPED and must NOT be a return
                 let isShippedOrDelivered = rawStatus.includes('SHIPPED') && !rawStatus.includes('RETURNING');
                 
                 if(asin && ordered > 0 && orderDate && isShippedOrDelivered) { 
@@ -1583,6 +1606,12 @@
                             totalDeductedStock[mapping.master] = (totalDeductedStock[mapping.master] || 0) + totalQtyDeducted; 
                             totalDeductionsFound++; 
                             
+                            // 3. Deduct from Live Amazon Stock using the exact Seller SKU from this row
+                            let sSku = extractSellerSKU(row);
+                            if (sSku && db.liveAmazonStock && db.liveAmazonStock[sSku.toString().trim()]) {
+                                db.liveAmazonStock[sSku.toString().trim()].qty = Math.max(0, db.liveAmazonStock[sSku.toString().trim()].qty - ordered);
+                            }
+
                             processedOrders[uniqueKey] = {
                                 date: orderDate,
                                 orderId: orderId || "N/A",
@@ -1597,7 +1626,7 @@
             
             if (totalDeductionsFound === 0) return alert("Notice: No new valid shipped/delivered orders found (or all were duplicates/unmapped).");
             
-            // Process Sales Trends (Chronologically append to db.sales)
+            // Process Sales Trends
             let sortedDates = Object.keys(dailyDeductions).sort((a, b) => new Date(a) - new Date(b));
             sortedDates.forEach(date => {
                 for (let mSku in dailyDeductions[date]) {
@@ -1619,13 +1648,8 @@
                 
                 // 1. Deduct directly from Master Total
                 db.masters[mSku] = closing;
-
-                // 2. NEW: Deduct from Live Amazon Stock to keep it accurate
-                if (db.liveAmazonStock && db.liveAmazonStock[mSku] !== undefined) {
-                    db.liveAmazonStock[mSku] = Math.max(0, db.liveAmazonStock[mSku] - deduction);
-                }
                 
-                // 3. Deduct from Rack first. If Rack hits 0, take from Warehouse.
+                // 2. Deduct from Rack first. If Rack hits 0, take from Warehouse.
                 if(db.locations[mSku]) {
                     let qtyToDeduct = deduction;
                     let rack = db.locations[mSku].rack || 0;
@@ -1680,6 +1704,12 @@
                         revertedStock[processedData.master] = (revertedStock[processedData.master] || 0) + revertQty; 
                         totalRevertsFound++; 
                         
+                        // Add back to Live Stock using the exact Seller SKU
+                        let sSku = extractSellerSKU(row);
+                        if (sSku && db.liveAmazonStock && db.liveAmazonStock[sSku.toString().trim()]) {
+                            db.liveAmazonStock[sSku.toString().trim()].qty += ordered; 
+                        }
+
                         delete processedOrders[uniqueKey]; 
                     }
                 }
@@ -1694,13 +1724,8 @@
                 
                 // 1. Add back directly to Master
                 db.masters[mSku] = closing;
-
-                // 2. Add back to Live Amazon Stock
-                if (db.liveAmazonStock && db.liveAmazonStock[mSku] !== undefined) {
-                    db.liveAmazonStock[mSku] = db.liveAmazonStock[mSku] + revertQty;
-                }
                 
-                // 3. Adjust Warehouse to balance
+                // 2. Adjust Warehouse to balance
                 if(db.locations[mSku]) {
                     db.locations[mSku].wh = db.masters[mSku] - (db.locations[mSku].rack || 0);
                 }
