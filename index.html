@@ -216,7 +216,7 @@
                 <thead>
                     <tr>
                         <th style="width: 40px; text-align: center;"><input type="checkbox" id="selectAllASINs" onclick="window.toggleAllASINs()"></th>
-                        <th>Amazon SKU (Ref)</th><th>ASIN</th><th>Product Title</th><th>Map to Master SKU</th><th>Pack Qty</th><th>Status / Action</th>
+                        <th>Amazon SKU (Ref)</th><th>ASIN</th><th>Product Title</th><th colspan="2">Map to Master SKU / Bundles</th><th>Status / Action</th>
                     </tr>
                 </thead>
                 <tbody id="asinMappingTableBody"></tbody>
@@ -466,17 +466,30 @@
             db.masters[sku] = r + w; // Updates master total automatically
         });
 
-        // Save ASIN Mapping
-        document.querySelectorAll('input[id^="map_master_"]').forEach(inp => {
-            let asin = inp.id.replace('map_master_', '');
-            let master = inp.value.trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_");
-            let pack = parseInt(document.getElementById(`map_pack_${asin}`).value) || 1;
-            if(db.asins[asin]) {
-                db.asins[asin].master = master;
-                db.asins[asin].pack = pack;
-                if(master && db.masters[master] === undefined) { 
-                    db.masters[master] = 0; db.locations[master] = { rack: 0, wh: 0 }; 
+        // Save ASIN Mapping (Updated for Multi-Packs/Bundles)
+        document.querySelectorAll('div[id^="mapping_container_"]').forEach(container => {
+            let asin = container.id.replace('mapping_container_', '');
+            let rows = container.querySelectorAll('.map-row');
+            let newMasters = [];
+            
+            rows.forEach(row => {
+                let skuInput = row.querySelector('.map-sku-input');
+                let packInput = row.querySelector('.map-pack-input');
+                let cbInput = row.querySelector('input[type="checkbox"]');
+                
+                let mSku = skuInput.value.trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_");
+                let pack = cbInput.checked ? (parseInt(packInput.value) || 1) : 1;
+                
+                if (mSku) {
+                    newMasters.push({ sku: mSku, pack: pack });
+                    if(db.masters[mSku] === undefined) { 
+                        db.masters[mSku] = 0; db.locations[mSku] = { rack: 0, wh: 0 }; 
+                    }
                 }
+            });
+            if (db.asins[asin]) {
+                db.asins[asin].masters = newMasters;
+                delete db.asins[asin].master; delete db.asins[asin].pack; // Clean legacy data
             }
         });
 
@@ -1461,19 +1474,112 @@
     window.renderASINMappingTable = function() {
         let db = getDB(); let html = "";
         for (let asin in db.asins) {
-            let data = db.asins[asin]; let status = data.master ? `<span class="badge-green">Mapped</span>` : `<span class="badge-red">Unmapped</span>`;
+            let data = db.asins[asin]; 
+            
+            // Migrate old single mappings to the new array structure seamlessly
+            let masters = data.masters || [];
+            if (masters.length === 0 && data.master) {
+                masters.push({ sku: data.master, pack: data.pack || 1 });
+            }
+
+            let status = masters.length > 0 ? `<span class="badge-green">Mapped</span>` : `<span class="badge-red">Unmapped</span>`;
+            
+            // Build the multi-select dynamic UI
+            let mappingHtml = `<div id="mapping_container_${asin}" style="display:flex; flex-direction:column; gap:6px; margin-bottom: 5px;">`;
+            
+            if (masters.length === 0) {
+                // Empty default row
+                mappingHtml += `
+                    <div style="display:flex; gap:5px; align-items:center; background:#f8f9fa; padding:4px; border:1px solid #ddd; border-radius:3px;" class="map-row">
+                        <input type="text" class="map-sku-input" list="skuSuggestions" placeholder="Master SKU" style="width:140px; padding:4px; margin:0;" oninput="window.markEdit()">
+                        <label style="font-size:11px; display:flex; align-items:center; gap:2px; margin:0; cursor:pointer;">
+                            <input type="checkbox" onchange="this.nextElementSibling.style.display = this.checked ? 'inline-block' : 'none'; window.markEdit();"> Packs?
+                            <input type="number" class="map-pack-input" value="1" style="width:45px; padding:4px; margin:0; display:none;" min="1" oninput="window.markEdit()">
+                        </label>
+                        <button class="btn-danger" style="padding:2px 6px; font-size:10px; border:none; cursor:pointer;" onclick="this.parentElement.remove(); window.markEdit();">❌</button>
+                    </div>`;
+            } else {
+                // Load saved mappings
+                masters.forEach((m) => {
+                    let hasPack = m.pack > 1;
+                    let displayPack = hasPack ? 'inline-block' : 'none';
+                    mappingHtml += `
+                    <div style="display:flex; gap:5px; align-items:center; background:#f8f9fa; padding:4px; border:1px solid #ddd; border-radius:3px;" class="map-row">
+                        <input type="text" class="map-sku-input" list="skuSuggestions" value="${m.sku}" style="width:140px; padding:4px; margin:0;" oninput="window.markEdit()">
+                        <label style="font-size:11px; display:flex; align-items:center; gap:2px; margin:0; cursor:pointer;">
+                            <input type="checkbox" onchange="this.nextElementSibling.style.display = this.checked ? 'inline-block' : 'none'; window.markEdit();" ${hasPack ? 'checked' : ''}> Packs?
+                            <input type="number" class="map-pack-input" value="${m.pack}" style="width:45px; padding:4px; margin:0; display:${displayPack};" min="1" oninput="window.markEdit()">
+                        </label>
+                        <button class="btn-danger" style="padding:2px 6px; font-size:10px; border:none; cursor:pointer;" onclick="this.parentElement.remove(); window.markEdit();">❌</button>
+                    </div>`;
+                });
+            }
+
+            mappingHtml += `<button class="btn btn-info btn-small add-map-btn" onclick="window.addMappingRow('${asin}')" style="align-self:flex-start; font-size: 11px;">➕ Add Part/SKU</button>`;
+            mappingHtml += `</div>`;
+
+            // Note: colspan="2" merges the Map and Pack Qty columns seamlessly
             html += `<tr><td style="text-align:center;"><input type="checkbox" class="asin-checkbox" value="${asin}"></td>
                 <td><span class="ref-sku">${data.sellerSku||"N/A"}</span></td><td><strong>${asin}</strong></td>
                 <td><span class="truncate" title="${data.title}">${data.title}</span></td>
-                <td><input type="text" id="map_master_${asin}" class="inline-input" value="${data.master}" list="skuSuggestions" oninput="window.markEdit()"></td>
-                <td><input type="number" id="map_pack_${asin}" class="inline-input price-input" value="${data.pack}" min="1" oninput="window.markEdit()"></td>
-                <td style="white-space: nowrap;">${status} <br><br> <button class="btn btn-small" onclick="window.saveSingleMapping('${asin}')">Save</button></td></tr>`;
+                <td colspan="2">${mappingHtml}</td>
+                <td style="white-space: nowrap; text-align:center;">${status} <br><br> <button class="btn btn-small" onclick="window.saveSingleMapping('${asin}')">💾 Save</button></td></tr>`;
         }
         let tbody = document.getElementById("asinMappingTableBody"); 
         if(tbody) {
             tbody.innerHTML = html;
             setTimeout(() => window.buildTableFilters("tblASINMapping"), 50);
         }
+    };
+
+    // Helper function to dynamically add a new input row
+    window.addMappingRow = function(asin) {
+        let container = document.getElementById(`mapping_container_${asin}`);
+        let rowHtml = `
+            <div style="display:flex; gap:5px; align-items:center; background:#f8f9fa; padding:4px; border:1px solid #ddd; border-radius:3px;" class="map-row">
+                <input type="text" class="map-sku-input" list="skuSuggestions" placeholder="Master SKU" style="width:140px; padding:4px; margin:0;" oninput="window.markEdit()">
+                <label style="font-size:11px; display:flex; align-items:center; gap:2px; margin:0; cursor:pointer;">
+                    <input type="checkbox" onchange="this.nextElementSibling.style.display = this.checked ? 'inline-block' : 'none'; window.markEdit();"> Packs?
+                    <input type="number" class="map-pack-input" value="1" style="width:45px; padding:4px; margin:0; display:none;" min="1" oninput="window.markEdit()">
+                </label>
+                <button class="btn-danger" style="padding:2px 6px; font-size:10px; border:none; cursor:pointer;" onclick="this.parentElement.remove(); window.markEdit();">❌</button>
+            </div>
+        `;
+        let addBtn = container.querySelector('.add-map-btn');
+        addBtn.insertAdjacentHTML('beforebegin', rowHtml);
+        window.markEdit();
+    };
+
+    window.saveSingleMapping = async function(asin) {
+        let container = document.getElementById(`mapping_container_${asin}`);
+        let rows = container.querySelectorAll('.map-row');
+        let newMasters = [];
+        
+        rows.forEach(row => {
+            let skuInput = row.querySelector('.map-sku-input');
+            let packInput = row.querySelector('.map-pack-input');
+            let cbInput = row.querySelector('input[type="checkbox"]');
+            
+            let mSku = skuInput.value.trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_");
+            // Only apply pack multiplier if the checkbox is checked
+            let pack = cbInput.checked ? (parseInt(packInput.value) || 1) : 1;
+            
+            if (mSku) {
+                newMasters.push({ sku: mSku, pack: pack });
+                // Create the Master SKU if it doesn't exist yet
+                if(db.masters[mSku] === undefined) { db.masters[mSku] = 0; db.locations[mSku] = { rack: 0, wh: 0 }; }
+            }
+        });
+
+        let db = getDB(); 
+        db.asins[asin].masters = newMasters;
+        // Clean up old obsolete fields to keep DB clean
+        delete db.asins[asin].master; delete db.asins[asin].pack;
+        
+        window.hasUnsavedEdits = false;
+        document.getElementById('globalBulkActionBar').style.display = 'none';
+
+        await saveDB(db);
     };
 
     window.downloadMappingTemplate = function() {
@@ -1540,30 +1646,20 @@
         if(!confirm(`Delete ${selectedBoxes.length} ASINs?`)) return;
         let db = getDB(); selectedBoxes.forEach(cb => delete db.asins[cb.value]); await saveDB(db);
     };
-    
-    window.saveSingleMapping = async function(asin) {
-        let master = document.getElementById(`map_master_${asin}`).value.trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_");
-        let pack = parseInt(document.getElementById(`map_pack_${asin}`).value);
-        let db = getDB(); db.asins[asin].master = master; db.asins[asin].pack = pack;
-        if(db.masters[master] === undefined) { db.masters[master] = 0; db.locations[master] = { rack: 0, wh: 0 }; }
-        
-        window.hasUnsavedEdits = false;
-        document.getElementById('globalBulkActionBar').style.display = 'none';
-
-        await saveDB(db);
-    };
 
     // --- TAB 4: INVENTORY STATUS (LIVE SYNC) ---
-    // Note: processInventoryFile is left here to not break old buttons, but shouldn't be needed with new ASIN map logic
     window.processInventoryFile = function() {
         alert("This functionality is now handled automatically when you upload your Active Listings Report in the ASIN Mapping tab.");
     };
 
     window.renderInventoryTable = function() {
-        let db = getDB(); let html = "";
+        let db = getDB(); 
+        let html = "";
         let liveStockData = db.liveAmazonStock || {};
+        
+        // 1. Create an array to hold the row data so we can sort it before rendering
+        let tableRows = [];
 
-        // Iterate by ASIN to match our new logic
         for (let asin in liveStockData) { 
             let data = liveStockData[asin];
             let sSku = data.sSku || "N/A";
@@ -1574,12 +1670,46 @@
             let mSku = (mapping && mapping.master) ? mapping.master : "Not Mapped";
             let whStock = (mapping && mapping.master && db.masters[mSku] !== undefined) ? db.masters[mSku] : "N/A";
 
-            html += `<tr>
-                <td><strong>${sSku}</strong></td>
-                <td>${asin}</td>
-                <td style="color:#0277bd; font-weight:bold;">${mSku}</td>
-                <td style="color:blue; font-weight:bold; background-color:#e3f2fd;">${qty}</td>
-                <td>${whStock}</td>
+            // --- NEW ALERT LOGIC ---
+            // Check if there are 3 days of recorded sales for this Master SKU
+            let salesHistory = db.sales[mSku] || [];
+            let soldContinuously = salesHistory.length >= 3 && salesHistory[0] > 0 && salesHistory[1] > 0 && salesHistory[2] > 0;
+            
+            // Check if it meets BOTH conditions: Sold 3 days continuously AND Live Amazon Stock < 300
+            let needsAmazonRestock = soldContinuously && qty < 300;
+
+            tableRows.push({
+                asin: asin,
+                sSku: sSku,
+                mSku: mSku,
+                qty: qty,
+                whStock: whStock,
+                needsAmazonRestock: needsAmazonRestock
+            });
+        }
+        
+        // 2. Sort the array: Push "needsAmazonRestock" to the top
+        tableRows.sort((a, b) => {
+            if (a.needsAmazonRestock && !b.needsAmazonRestock) return -1;
+            if (!a.needsAmazonRestock && b.needsAmazonRestock) return 1;
+            // Fallback: Sort alphabetically by Master SKU if both have the same status
+            return a.mSku.localeCompare(b.mSku);
+        });
+
+        // 3. Generate the HTML from the sorted array
+        for (let row of tableRows) {
+            // Apply special styling if it needs a restock
+            let rowStyle = row.needsAmazonRestock ? "background-color: #fff8e1;" : "";
+            let qtyBgColor = row.needsAmazonRestock ? "#ffecb3" : "#e3f2fd";
+            let qtyTextColor = row.needsAmazonRestock ? "#d84315" : "blue";
+            let alertBadge = row.needsAmazonRestock ? `<br><span style="background:#ffc107; color:#856404; font-size:10px; padding:2px 6px; border-radius:4px; margin-top:4px; display:inline-block;">⚠️ Send to FBA</span>` : "";
+
+            html += `<tr style="${rowStyle}">
+                <td><strong>${row.sSku}</strong>${alertBadge}</td>
+                <td>${row.asin}</td>
+                <td style="color:#0277bd; font-weight:bold;">${row.mSku}</td>
+                <td style="color:${qtyTextColor}; font-weight:bold; background-color:${qtyBgColor};">${row.qty}</td>
+                <td>${row.whStock}</td>
             </tr>`; 
         }
         
@@ -1628,29 +1758,45 @@
 
                     if (!processedOrders[uniqueKey]) {
                         let mapping = db.asins[asin]; 
-                        if (mapping && mapping.master) { 
-                            let totalQtyDeducted = (ordered * mapping.pack);
-                            
-                            // 1. Group daily totals for Sales Trends
-                            if (!dailyDeductions[orderDate]) dailyDeductions[orderDate] = {};
-                            dailyDeductions[orderDate][mapping.master] = (dailyDeductions[orderDate][mapping.master] || 0) + totalQtyDeducted;
+                        
+                        // Handle both the new bundle array and provide a fallback for un-migrated old data
+                        let mappedMasters = mapping ? (mapping.masters || []) : [];
+                        if (mappedMasters.length === 0 && mapping && mapping.master) {
+                            mappedMasters.push({ sku: mapping.master, pack: mapping.pack || 1 });
+                        }
 
-                            // 2. Group grand totals for the UI display & physical stock deduction
-                            totalDeductedStock[mapping.master] = (totalDeductedStock[mapping.master] || 0) + totalQtyDeducted; 
+                        if (mappedMasters.length > 0) { 
+                            let logMasterNames = [];
+                            let logTotalQtyDeducted = 0;
+
+                            // Loop through every Master SKU connected to this single ASIN order
+                            mappedMasters.forEach(m => {
+                                let totalQtyDeducted = (ordered * m.pack);
+                                logMasterNames.push(`${m.sku} (x${m.pack})`);
+                                logTotalQtyDeducted += totalQtyDeducted;
+                                
+                                // 1. Group daily totals for Sales Trends
+                                if (!dailyDeductions[orderDate]) dailyDeductions[orderDate] = {};
+                                dailyDeductions[orderDate][m.sku] = (dailyDeductions[orderDate][m.sku] || 0) + totalQtyDeducted;
+
+                                // 2. Group grand totals for the UI display & physical stock deduction
+                                totalDeductedStock[m.sku] = (totalDeductedStock[m.sku] || 0) + totalQtyDeducted; 
+                            });
+
                             totalDeductionsFound++; 
                             
-                            // 3. NEW LOGIC: Deduct from Live Amazon Stock using the ASIN
+                            // 3. Deduct from Live Amazon Stock using the ASIN
                             if (db.liveAmazonStock && db.liveAmazonStock[asin]) {
-                                // Subtracts the order quantity and ensures it doesn't drop below 0
                                 db.liveAmazonStock[asin].qty = Math.max(0, db.liveAmazonStock[asin].qty - ordered);
                             }
 
+                            // Write to Ledger combining all parts so you see it was a bundle sale
                             processedOrders[uniqueKey] = {
                                 date: orderDate,
                                 orderId: orderId || "N/A",
-                                master: mapping.master,
+                                master: logMasterNames.join(" + "), 
                                 asin: asin,
-                                qty: totalQtyDeducted
+                                qty: logTotalQtyDeducted 
                             };
                         } 
                     }
