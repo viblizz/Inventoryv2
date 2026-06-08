@@ -777,14 +777,36 @@
         window.renderExistingGroups();   
     }
 
-    // UTILS
+    // --- REBUILT UTILS FOR STRICT EXTRACTION ---
     function normalizeRow(row) { let newRow = {}; for (let key in row) { newRow[key.toString().trim().toUpperCase()] = row[key]; } return newRow; }
-    function extractASIN(row) { return row["(CHILD) ASIN"] || row["CHILD ASIN"] || row["ASIN1"] || row["ASIN"] || row["PRODUCT-ID"] || null; }
-    function extractQuantity(row) { return parseInt((row["QUANTITY"] !== undefined ? row["QUANTITY"] : row["QTY"]) || 0); }
+    
+    function extractASIN(row) { 
+        let val = row["(CHILD) ASIN"] || row["CHILD ASIN"] || row["ASIN1"] || row["ASIN"] || row["PRODUCT-ID"] || null; 
+        if (!val) return null;
+        val = val.toString().trim().toUpperCase();
+        // Strict Validation: ASINs don't have spaces and are generally ~10 chars long.
+        // This prevents product titles from being sucked into the ASIN column!
+        if (val.includes(' ') || val.length > 15 || val.length < 8) return null; 
+        return val; 
+    }
+    
+    function extractQuantity(row) { 
+        let val = row["QUANTITY"] !== undefined ? row["QUANTITY"] : row["QTY"]; 
+        // Return NaN if the column is entirely missing, this protects the DB from resetting to 0
+        if (val === undefined || val === null || val === "") return NaN;
+        return parseInt(val); 
+    }
+    
     function extractOrders(row) { return parseInt(row["QUANTITY-PURCHASED"] || row["UNITS ORDERED"] || row["ORDERED"] || 0); }
-    function extractSellerSKU(row) { return row["SELLER-SKU"] || row["SKU"] || row["MERCHANT SKU"] || row["SELLER SKU"] || null; }
+    
+    function extractSellerSKU(row) { 
+        return row["SELLER-SKU"] || row["SKU"] || row["MERCHANT SKU"] || row["SELLER SKU"] || row["AMAZON SKU (REF)"] || null; 
+    }
+    
     function extractPrice(row) { return parseFloat(row["PRICE"] || row["YOUR PRICE"] || 0); }
+    
     function extractOrderID(row) { return row["AMAZON-ORDER-ID"] || row["ORDER ID"] || row["ORDER-ID"] || row["ORDERID"] || null; }
+
 
     // --- NEW: MANUAL SKU GROUPING LOGIC ---
     window.populateGroupDropdowns = function() {
@@ -1376,33 +1398,42 @@
             let json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
             let db = getDB(); let count = 0;
             
-            // NEW: Create a fresh object to wipe out the old corrupted data
+            // NEW: Create a fresh object to securely hold new data
             let freshLiveStock = {}; 
+
+            // --- DATABASE SCRUBBER ---
+            // Automatically clean out garbage ASINs (like product titles with spaces) from the previous bug
+            if (db.asins) {
+                for (let k in db.asins) {
+                    if (k.includes(' ') || k.length > 15) delete db.asins[k];
+                }
+            }
 
             json.forEach(rawRow => {
                 let row = normalizeRow(rawRow); 
                 let asin = extractASIN(row); 
                 let sSku = extractSellerSKU(row); 
-                let title = row["ITEM-NAME"] || "No Title";
+                let title = row["ITEM-NAME"] || row["PRODUCT TITLE"] || row["TITLE"] || "No Title";
                 let filePrice = extractPrice(row); 
                 
-                // Extract quantity, defaulting to NaN if missing
+                // Extract quantity, returning NaN if column is entirely missing
                 let qty = extractQuantity(row); 
 
+                // Only proceed if extraction found a strictly valid ASIN format
                 if(asin) { 
                     asin = asin.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_");
                     
                     if(!db.asins[asin]) { 
-                        db.asins[asin] = {master: "", pack: 1, title: title, sellerSku: sSku}; 
+                        db.asins[asin] = {master: "", pack: 1, title: title, sellerSku: sSku || "N/A"}; 
                         count++; 
                     } else { 
                         if(db.asins[asin].title==="No Title") db.asins[asin].title=title; 
-                        if(!db.asins[asin].sellerSku) db.asins[asin].sellerSku=sSku; 
+                        if(!db.asins[asin].sellerSku || db.asins[asin].sellerSku === "N/A") db.asins[asin].sellerSku=sSku; 
                     }
 
-                    // Save to the FRESH object instead of the old one mapped by ASIN
+                    // Save to the FRESH object (only if a valid quantity was found)
                     if (!isNaN(qty)) {
-                        freshLiveStock[asin] = { qty: qty, sSku: sSku }; 
+                        freshLiveStock[asin] = { qty: qty, sSku: sSku || "N/A" }; 
                     }
 
                     // Push the selling price directly to the Pricing System
@@ -1417,11 +1448,13 @@
                 }
             }); 
             
-            // Overwrite the database's live stock with the clean, correctly mapped data
-            db.liveAmazonStock = freshLiveStock;
+            // Safety Check: Only overwrite live stock if the uploaded file actually contained Quantities
+            if (Object.keys(freshLiveStock).length > 0) {
+                db.liveAmazonStock = freshLiveStock;
+            }
             
             await saveDB(db); 
-            alert(`${count} ASINs Loaded, Live Stock Cleaned & Updated!`);
+            alert(`${count} ASINs Loaded! Live Stock & Mappings have been cleaned and updated.`);
         }; reader.readAsArrayBuffer(file);
     };
 
@@ -1462,22 +1495,27 @@
                 
                 json.forEach(rawRow => {
                     let row = normalizeRow(rawRow); 
-                    let asin = extractASIN(row) || row["ASIN"]; 
+                    // Safely extract checking for bad formats
+                    let asin = extractASIN(row) || row["ASIN"];
+                    let finalAsin = null;
+                    if (asin && typeof asin === 'string' && !asin.trim().includes(' ') && asin.trim().length <= 15) {
+                        finalAsin = asin.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_"); 
+                    }
+
                     let master = row["MASTER SKU"] || row["MASTERSKU"]; 
                     let pack = parseInt(row["PACK QTY"] || row["PACKQTY"] || 1);
                     let title = row["PRODUCT TITLE"] || row["TITLE"] || "Pre-filled Upload";
                     let sellerSku = row["AMAZON SKU (REF)"] || row["SELLER SKU"] || "N/A";
 
-                    if (asin && master) {
-                        asin = asin.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_"); 
+                    if (finalAsin && master) {
                         master = master.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_");
                         
-                        if (!db.asins[asin]) {
-                            db.asins[asin] = { master: "", pack: 1, title: title, sellerSku: sellerSku };
+                        if (!db.asins[finalAsin]) {
+                            db.asins[finalAsin] = { master: "", pack: 1, title: title, sellerSku: sellerSku };
                         }
                         
-                        db.asins[asin].master = master; 
-                        db.asins[asin].pack = isNaN(pack) ? 1 : pack; 
+                        db.asins[finalAsin].master = master; 
+                        db.asins[finalAsin].pack = isNaN(pack) ? 1 : pack; 
                         mappedCount++; 
                         
                         if (db.masters[master] === undefined) { 
@@ -1488,7 +1526,7 @@
                 }); 
                 await saveDB(db); 
                 document.getElementById('bulkMappingFile').value = ""; 
-                alert(`Successfully uploaded and mapped ${mappedCount} ASINs! Master SKUs have been updated.`);
+                alert(`Successfully uploaded and mapped ${mappedCount} valid ASINs!`);
             } catch (error) { 
                 console.error(error); 
                 alert("Error parsing file."); 
