@@ -52,6 +52,11 @@
         .filter-options label { display: flex; align-items: center; font-size: 12px; font-weight: normal; margin-bottom: 6px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .filter-options input[type="checkbox"] { margin-right: 8px; margin-bottom: 0; width: 14px; height: 14px; cursor: pointer; }
         
+        /* Custom Inline Asin Map Dropdown Selector CSS */
+        .asin-select-container { position: relative; width: 100%; max-width: 280px; font-weight: normal; margin-bottom: 8px; }
+        .asin-select-button { width: 100%; padding: 6px 10px; text-align: left; font-size: 12px; background: #fff; border: 1px solid #aaa; border-radius: 4px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; box-sizing: border-box; font-weight: bold; }
+        .asin-select-dropdown { position: absolute; top: 100%; left: 0; width: 260px; background: white; border: 1px solid #aaa; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 9999; display: none; flex-direction: column; max-height: 300px; border-radius: 4px; }
+        
         .badge-green { background: #e8f5e9; color: #2e7d32; padding: 3px 8px; border-radius: 12px; font-weight: bold; }
         .badge-red { background: #ffebee; color: #c62828; padding: 3px 8px; border-radius: 12px; font-weight: bold; }
         .ref-sku { color: #856404; background-color: #fff3cd; padding: 2px 6px; border-radius: 4px; font-size: 12px; font-family: monospace; }
@@ -216,7 +221,7 @@
                 <thead>
                     <tr>
                         <th style="width: 40px; text-align: center;"><input type="checkbox" id="selectAllASINs" onclick="window.toggleAllASINs()"></th>
-                        <th>Amazon SKU (Ref)</th><th>ASIN</th><th>Product Title</th><th colspan="2">Map to Master SKU / Bundles</th><th>Status / Action</th>
+                        <th>Amazon SKU (Ref)</th><th>ASIN</th><th>Product Title</th><th colspan="2">Map to Master SKU / Bundles Matrix</th><th>Status / Action</th>
                     </tr>
                 </thead>
                 <tbody id="asinMappingTableBody"></tbody>
@@ -466,30 +471,28 @@
             db.masters[sku] = r + w; // Updates master total automatically
         });
 
-        // Save ASIN Mapping (Updated for Multi-Packs/Bundles)
+        // Save ASIN Mapping (Updated for Multi-Select Dropdown Matrix)
         document.querySelectorAll('div[id^="mapping_container_"]').forEach(container => {
             let asin = container.id.replace('mapping_container_', '');
-            let rows = container.querySelectorAll('.map-row');
+            let rows = container.querySelectorAll('.bifurcated-row');
             let newMasters = [];
             
             rows.forEach(row => {
-                let skuInput = row.querySelector('.map-sku-input');
+                let sku = row.dataset.sku;
+                let cbInput = row.querySelector('.pack-checkbox');
                 let packInput = row.querySelector('.map-pack-input');
-                let cbInput = row.querySelector('input[type="checkbox"]');
-                
-                let mSku = skuInput.value.trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_");
                 let pack = cbInput.checked ? (parseInt(packInput.value) || 1) : 1;
                 
-                if (mSku) {
-                    newMasters.push({ sku: mSku, pack: pack });
-                    if(db.masters[mSku] === undefined) { 
-                        db.masters[mSku] = 0; db.locations[mSku] = { rack: 0, wh: 0 }; 
+                if (sku) {
+                    newMasters.push({ sku: sku, pack: pack });
+                    if(db.masters[sku] === undefined) { 
+                        db.masters[sku] = 0; db.locations[sku] = { rack: 0, wh: 0 }; 
                     }
                 }
             });
             if (db.asins[asin]) {
                 db.asins[asin].masters = newMasters;
-                delete db.asins[asin].master; delete db.asins[asin].pack; // Clean legacy data
+                delete db.asins[asin].master; delete db.asins[asin].pack; // Clean legacy data structures
             }
         });
 
@@ -607,6 +610,7 @@
                 e.stopPropagation();
                 let isShowing = dropdown.classList.contains('show');
                 document.querySelectorAll('.filter-dropdown').forEach(d => d.classList.remove('show'));
+                document.querySelectorAll('.asin-select-dropdown').forEach(d => d.style.display = 'none');
                 if (!isShowing) {
                     dropdown.classList.add('show');
                     searchInput.focus();
@@ -696,6 +700,7 @@
 
     document.addEventListener('click', function() {
         document.querySelectorAll('.filter-dropdown').forEach(d => d.classList.remove('show'));
+        document.querySelectorAll('.asin-select-dropdown').forEach(d => d.style.display = 'none');
     });
 
     // --- UI SETUP ---
@@ -1066,7 +1071,13 @@
         let db = getDB(); let html = "";
         let linkedCounts = {};
         for (let sku in db.masters) linkedCounts[sku] = 0;
-        for (let asin in db.asins) { let mSku = db.asins[asin].master; if (mSku && db.masters[mSku] !== undefined) linkedCounts[mSku] = (linkedCounts[mSku] || 0) + 1; }
+        for (let asin in db.asins) { 
+            let masters = db.asins[asin].masters || [];
+            if(masters.length === 0 && db.asins[asin].master) masters.push({sku: db.asins[asin].master});
+            masters.forEach(m => {
+                if (m.sku && db.masters[m.sku] !== undefined) linkedCounts[m.sku] = (linkedCounts[m.sku] || 0) + 1;
+            });
+        }
 
         // Find all children so we don't render them twice
         let allChildren = new Set();
@@ -1184,7 +1195,11 @@
         if (db.purchasePrices[oldSku]) { db.purchasePrices[newSku] = db.purchasePrices[oldSku]; delete db.purchasePrices[oldSku]; }
         if (db.locations[oldSku]) { db.locations[newSku] = db.locations[oldSku]; delete db.locations[oldSku]; }
         
-        for (let asin in db.asins) { if (db.asins[asin].master === oldSku) db.asins[asin].master = newSku; }
+        for (let asin in db.asins) { 
+            if (db.asins[asin].master === oldSku) db.asins[asin].master = newSku; 
+            let masters = db.asins[asin].masters || [];
+            masters.forEach(m => { if(m.sku === oldSku) m.sku = newSku; });
+        }
         for (let date in db.ledger) { if(db.ledger[date][oldSku]) { db.ledger[date][newSku] = db.ledger[date][oldSku]; delete db.ledger[date][oldSku]; } }
         
         // Migrate purchase history
@@ -1437,7 +1452,7 @@
                     asin = asin.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_");
                     
                     if(!db.asins[asin]) { 
-                        db.asins[asin] = {master: "", pack: 1, title: title, sellerSku: sSku || "N/A"}; 
+                        db.asins[asin] = {masters: [], title: title, sellerSku: sSku || "N/A"}; 
                         count++; 
                     } else { 
                         if(db.asins[asin].title==="No Title") db.asins[asin].title=title; 
@@ -1471,59 +1486,154 @@
         }; reader.readAsArrayBuffer(file);
     };
 
+    window.toggleAsinDropdown = function(asin, event) {
+        event.stopPropagation();
+        let targetMenu = document.getElementById(`asin_dropdown_menu_${asin}`);
+        let isShowing = targetMenu.style.display === "flex";
+        
+        document.querySelectorAll('.asin-select-dropdown').forEach(d => d.style.display = 'none');
+        document.querySelectorAll('.filter-dropdown').forEach(d => d.classList.remove('show'));
+        
+        if (!isShowing) {
+            targetMenu.style.display = "flex";
+            let sInput = targetMenu.querySelector('.sku-search-box');
+            if (sInput) sInput.focus();
+        }
+    };
+
+    window.filterSkuList = function(asin) {
+        let input = document.getElementById(`sku_search_${asin}`);
+        let filter = input.value.toLowerCase();
+        let container = document.getElementById(`sku_options_${asin}`);
+        let labels = container.getElementsByTagName('label');
+        
+        Array.from(labels).forEach(lbl => {
+            let text = lbl.innerText.toLowerCase();
+            lbl.style.display = text.includes(filter) ? "flex" : "none";
+        });
+    };
+
+    window.handleAsinSelectionChange = function(asin) {
+        let menu = document.getElementById(`sku_options_${asin}`);
+        let checkedBoxes = menu.querySelectorAll('.sku-selector-cb:checked');
+        let selectedSkus = Array.from(checkedBoxes).map(cb => cb.value);
+        
+        let container = document.getElementById(`bifurcated_rows_container_${asin}`);
+        let existingRows = container.querySelectorAll('.bifurcated-row');
+        
+        // Retain saved configurations so users don't lose typed pack counts mid-selection
+        let currentConfigMap = {};
+        existingRows.forEach(row => {
+            let sku = row.dataset.sku;
+            let cbPack = row.querySelector('.pack-checkbox').checked;
+            let packVal = row.querySelector('.map-pack-input').value;
+            currentConfigMap[sku] = { checked: cbPack, pack: packVal };
+        });
+
+        // Rebuild clean, bifurcated UI block
+        let html = "";
+        selectedSkus.forEach(sku => {
+            let saved = currentConfigMap[sku] || { checked: false, pack: "1" };
+            let displayPack = saved.checked ? "inline-block" : "none";
+            
+            html += `
+                <div class="bifurcated-row" data-sku="${sku}" style="display:flex; gap:6px; align-items:center; background:#f8f9fa; padding:5px; border:1px solid #ddd; border-radius:3px; margin-top:4px;">
+                    <span style="font-weight:bold; font-size:12px; color:#333; min-width:120px; max-width:150px; overflow:hidden; text-overflow:ellipsis;">${sku}</span>
+                    <label style="font-size:11px; display:flex; align-items:center; gap:3px; margin:0; cursor:pointer; font-weight:normal;">
+                        <input type="checkbox" class="pack-checkbox" onchange="this.nextElementSibling.style.display = this.checked ? 'inline-block' : 'none'; window.markEdit();" ${saved.checked ? 'checked' : ''}> Packs?
+                        <input type="number" class="map-pack-input" value="${saved.pack}" style="width:45px; padding:4px; margin:0; display:${displayPack};" min="1" oninput="window.markEdit()">
+                    </label>
+                </div>
+            `;
+        });
+        
+        container.innerHTML = html;
+        
+        // Update label text on main picker button
+        let btnSpan = document.getElementById(`asin_select_btn_text_${asin}`);
+        if(btnSpan) {
+            btnSpan.innerText = selectedSkus.length > 0 ? `${selectedSkus.length} Selected` : "Select Master SKUs...";
+        }
+        window.markEdit();
+    };
+
     window.renderASINMappingTable = function() {
-        let db = getDB(); let html = "";
+        let db = getDB(); 
+        let html = "";
+        let allMasterSkus = Object.keys(db.masters).sort();
+
         for (let asin in db.asins) {
             let data = db.asins[asin]; 
             
-            // Migrate old single mappings to the new array structure seamlessly
+            // Seamless legacy structure migration
             let masters = data.masters || [];
             if (masters.length === 0 && data.master) {
                 masters.push({ sku: data.master, pack: data.pack || 1 });
             }
 
+            let activeSkuSet = new Set(masters.map(m => m.sku));
             let status = masters.length > 0 ? `<span class="badge-green">Mapped</span>` : `<span class="badge-red">Unmapped</span>`;
             
-            // Build the multi-select dynamic UI
-            let mappingHtml = `<div id="mapping_container_${asin}" style="display:flex; flex-direction:column; gap:6px; margin-bottom: 5px;">`;
-            
-            if (masters.length === 0) {
-                // Empty default row
-                mappingHtml += `
-                    <div style="display:flex; gap:5px; align-items:center; background:#f8f9fa; padding:4px; border:1px solid #ddd; border-radius:3px;" class="map-row">
-                        <input type="text" class="map-sku-input" list="skuSuggestions" placeholder="Master SKU" style="width:140px; padding:4px; margin:0;" oninput="window.markEdit()">
-                        <label style="font-size:11px; display:flex; align-items:center; gap:2px; margin:0; cursor:pointer;">
-                            <input type="checkbox" onchange="this.nextElementSibling.style.display = this.checked ? 'inline-block' : 'none'; window.markEdit();"> Packs?
-                            <input type="number" class="map-pack-input" value="1" style="width:45px; padding:4px; margin:0; display:none;" min="1" oninput="window.markEdit()">
-                        </label>
-                        <button class="btn-danger" style="padding:2px 6px; font-size:10px; border:none; cursor:pointer;" onclick="this.parentElement.remove(); window.markEdit();">❌</button>
-                    </div>`;
-            } else {
-                // Load saved mappings
-                masters.forEach((m) => {
-                    let hasPack = m.pack > 1;
-                    let displayPack = hasPack ? 'inline-block' : 'none';
-                    mappingHtml += `
-                    <div style="display:flex; gap:5px; align-items:center; background:#f8f9fa; padding:4px; border:1px solid #ddd; border-radius:3px;" class="map-row">
-                        <input type="text" class="map-sku-input" list="skuSuggestions" value="${m.sku}" style="width:140px; padding:4px; margin:0;" oninput="window.markEdit()">
-                        <label style="font-size:11px; display:flex; align-items:center; gap:2px; margin:0; cursor:pointer;">
-                            <input type="checkbox" onchange="this.nextElementSibling.style.display = this.checked ? 'inline-block' : 'none'; window.markEdit();" ${hasPack ? 'checked' : ''}> Packs?
+            // Build searchable options layout inside custom matrix dropdown
+            let dropdownOptionsHtml = "";
+            allMasterSkus.forEach(sku => {
+                let isChecked = activeSkuSet.has(sku) ? "checked" : "";
+                dropdownOptionsHtml += `
+                    <label style="display:flex; align-items:center; padding:5px; margin:0; cursor:pointer; font-size:12px; font-weight:normal;">
+                        <input type="checkbox" value="${sku}" class="sku-selector-cb" onchange="window.handleAsinSelectionChange('${asin}')" ${isChecked} style="margin-right:8px; width:15px; height:15px;"> ${sku}
+                    </label>
+                `;
+            });
+
+            // Build structural dynamic lines for active bundle parts
+            let bifurcatedLinesHtml = `<div id="bifurcated_rows_container_${asin}">`;
+            masters.forEach(m => {
+                let hasPack = m.pack > 1;
+                let displayPack = hasPack ? 'inline-block' : 'none';
+                bifurcatedLinesHtml += `
+                    <div class="bifurcated-row" data-sku="${m.sku}" style="display:flex; gap:6px; align-items:center; background:#f8f9fa; padding:5px; border:1px solid #ddd; border-radius:3px; margin-top:4px;">
+                        <span style="font-weight:bold; font-size:12px; color:#333; min-width:120px; max-width:150px; overflow:hidden; text-overflow:ellipsis;">${m.sku}</span>
+                        <label style="font-size:11px; display:flex; align-items:center; gap:3px; margin:0; cursor:pointer; font-weight:normal;">
+                            <input type="checkbox" class="pack-checkbox" onchange="this.nextElementSibling.style.display = this.checked ? 'inline-block' : 'none'; window.markEdit();" ${hasPack ? 'checked' : ''}> Packs?
                             <input type="number" class="map-pack-input" value="${m.pack}" style="width:45px; padding:4px; margin:0; display:${displayPack};" min="1" oninput="window.markEdit()">
                         </label>
-                        <button class="btn-danger" style="padding:2px 6px; font-size:10px; border:none; cursor:pointer;" onclick="this.parentElement.remove(); window.markEdit();">❌</button>
-                    </div>`;
-                });
-            }
+                    </div>
+                `;
+            });
+            bifurcatedLinesHtml += `</div>`;
 
-            mappingHtml += `<button class="btn btn-info btn-small add-map-btn" onclick="window.addMappingRow('${asin}')" style="align-self:flex-start; font-size: 11px;">➕ Add Part/SKU</button>`;
-            mappingHtml += `</div>`;
+            let displayBtnLabel = masters.length > 0 ? `${masters.length} Selected` : "Select Master SKUs...";
 
-            // Note: colspan="2" merges the Map and Pack Qty columns seamlessly
-            html += `<tr><td style="text-align:center;"><input type="checkbox" class="asin-checkbox" value="${asin}"></td>
-                <td><span class="ref-sku">${data.sellerSku||"N/A"}</span></td><td><strong>${asin}</strong></td>
+            html += `<tr>
+                <td style="text-align:center;"><input type="checkbox" class="asin-checkbox" value="${asin}"></td>
+                <td><span class="ref-sku">${data.sellerSku||"N/A"}</span></td>
+                <td><strong>${asin}</strong></td>
                 <td><span class="truncate" title="${data.title}">${data.title}</span></td>
-                <td colspan="2">${mappingHtml}</td>
-                <td style="white-space: nowrap; text-align:center;">${status} <br><br> <button class="btn btn-small" onclick="window.saveSingleMapping('${asin}')">💾 Save</button></td></tr>`;
+                <td colspan="2">
+                    <div id="mapping_container_${asin}" style="display:flex; flex-direction:column; width:100%;">
+                        
+                        <div class="asin-select-container">
+                            <div class="asin-select-button" onclick="window.toggleAsinDropdown('${asin}', event)">
+                                <span id="asin_select_btn_text_${asin}">${displayBtnLabel}</span>
+                                <span style="font-size:10px; color:#666;">▼</span>
+                            </div>
+                            
+                            <div class="asin-select-dropdown" id="asin_dropdown_menu_${asin}" onclick="event.stopPropagation()">
+                                <div style="padding:6px; border-bottom:1px solid #ddd; background:#f8f9fa;">
+                                    <input type="text" id="sku_search_${asin}" class="sku-search-box" placeholder="Search Master SKU..." onkeyup="window.filterSkuList('${asin}')" style="width:100%; padding:5px; margin:0; font-size:12px; border:1px solid #ccc; border-radius:3px;">
+                                </div>
+                                <div id="sku_options_${asin}" style="overflow-y:auto; padding:5px; max-height:200px; display:flex; flex-direction:column;">
+                                    ${dropdownOptionsHtml}
+                                </div>
+                            </div>
+                        </div>
+
+                        ${bifurcatedLinesHtml}
+
+                    </div>
+                </td>
+                <td style="white-space: nowrap; text-align:center;">${status} <br><br> <button class="btn btn-small" onclick="window.saveSingleMapping('${asin}')">💾 Save</button></td>
+            </tr>`;
         }
         let tbody = document.getElementById("asinMappingTableBody"); 
         if(tbody) {
@@ -1532,49 +1642,27 @@
         }
     };
 
-    // Helper function to dynamically add a new input row
-    window.addMappingRow = function(asin) {
-        let container = document.getElementById(`mapping_container_${asin}`);
-        let rowHtml = `
-            <div style="display:flex; gap:5px; align-items:center; background:#f8f9fa; padding:4px; border:1px solid #ddd; border-radius:3px;" class="map-row">
-                <input type="text" class="map-sku-input" list="skuSuggestions" placeholder="Master SKU" style="width:140px; padding:4px; margin:0;" oninput="window.markEdit()">
-                <label style="font-size:11px; display:flex; align-items:center; gap:2px; margin:0; cursor:pointer;">
-                    <input type="checkbox" onchange="this.nextElementSibling.style.display = this.checked ? 'inline-block' : 'none'; window.markEdit();"> Packs?
-                    <input type="number" class="map-pack-input" value="1" style="width:45px; padding:4px; margin:0; display:none;" min="1" oninput="window.markEdit()">
-                </label>
-                <button class="btn-danger" style="padding:2px 6px; font-size:10px; border:none; cursor:pointer;" onclick="this.parentElement.remove(); window.markEdit();">❌</button>
-            </div>
-        `;
-        let addBtn = container.querySelector('.add-map-btn');
-        addBtn.insertAdjacentHTML('beforebegin', rowHtml);
-        window.markEdit();
-    };
-
     window.saveSingleMapping = async function(asin) {
         let container = document.getElementById(`mapping_container_${asin}`);
-        let rows = container.querySelectorAll('.map-row');
+        let rows = container.querySelectorAll('.bifurcated-row');
         let newMasters = [];
         
+        let db = getDB(); 
         rows.forEach(row => {
-            let skuInput = row.querySelector('.map-sku-input');
+            let sku = row.dataset.sku;
+            let cbInput = row.querySelector('.pack-checkbox');
             let packInput = row.querySelector('.map-pack-input');
-            let cbInput = row.querySelector('input[type="checkbox"]');
             
-            let mSku = skuInput.value.trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_");
-            // Only apply pack multiplier if the checkbox is checked
             let pack = cbInput.checked ? (parseInt(packInput.value) || 1) : 1;
             
-            if (mSku) {
-                newMasters.push({ sku: mSku, pack: pack });
-                // Create the Master SKU if it doesn't exist yet
-                if(db.masters[mSku] === undefined) { db.masters[mSku] = 0; db.locations[mSku] = { rack: 0, wh: 0 }; }
+            if (sku) {
+                newMasters.push({ sku: sku, pack: pack });
+                if(db.masters[sku] === undefined) { db.masters[sku] = 0; db.locations[sku] = { rack: 0, wh: 0 }; }
             }
         });
 
-        let db = getDB(); 
         db.asins[asin].masters = newMasters;
-        // Clean up old obsolete fields to keep DB clean
-        delete db.asins[asin].master; delete db.asins[asin].pack;
+        delete db.asins[asin].master; delete db.asins[asin].pack; // Drop structural remnants
         
         window.hasUnsavedEdits = false;
         document.getElementById('globalBulkActionBar').style.display = 'none';
@@ -1657,48 +1745,53 @@
         let html = "";
         let liveStockData = db.liveAmazonStock || {};
         
-        // 1. Create an array to hold the row data so we can sort it before rendering
+        // Create an array to hold row data for flexible adaptive top sorting
         let tableRows = [];
 
         for (let asin in liveStockData) { 
             let data = liveStockData[asin];
             let sSku = data.sSku || "N/A";
-            // Fallback to 0 if qty is somehow missing to prevent "undefined" UI bugs
             let qty = data.qty !== undefined ? data.qty : 0; 
             
             let mapping = db.asins[asin];
-            let mSku = (mapping && mapping.master) ? mapping.master : "Not Mapped";
-            let whStock = (mapping && mapping.master && db.masters[mSku] !== undefined) ? db.masters[mSku] : "N/A";
-
-            // --- NEW ALERT LOGIC ---
-            // Check if there are 3 days of recorded sales for this Master SKU
-            let salesHistory = db.sales[mSku] || [];
-            let soldContinuously = salesHistory.length >= 3 && salesHistory[0] > 0 && salesHistory[1] > 0 && salesHistory[2] > 0;
             
-            // Check if it meets BOTH conditions: Sold 3 days continuously AND Live Amazon Stock < 300
+            // Extract display values for multi-mapped master skus
+            let displaySkus = "Not Mapped";
+            if (mapping) {
+                let masters = mapping.masters || [];
+                if (masters.length === 0 && mapping.master) masters.push({sku: mapping.master});
+                if (masters.length > 0) {
+                    displaySkus = masters.map(m => m.sku).join(" + ");
+                }
+            }
+
+            // Fallback for primary stock reading
+            let mSkuPrimary = (mapping && mapping.masters && mapping.masters.length > 0) ? mapping.masters[0].sku : ((mapping && mapping.master) ? mapping.master : null);
+            let whStock = (mSkuPrimary && db.masters[mSkuPrimary] !== undefined) ? db.masters[mSkuPrimary] : "N/A";
+
+            // --- RESTOCK SEARCH ENGINE MATRIX TRiggers ---
+            let salesHistory = mSkuPrimary ? (db.sales[mSkuPrimary] || []) : [];
+            let soldContinuously = salesHistory.length >= 3 && salesHistory[0] > 0 && salesHistory[1] > 0 && salesHistory[2] > 0;
             let needsAmazonRestock = soldContinuously && qty < 300;
 
             tableRows.push({
                 asin: asin,
                 sSku: sSku,
-                mSku: mSku,
+                mSku: displaySkus,
                 qty: qty,
                 whStock: whStock,
                 needsAmazonRestock: needsAmazonRestock
             });
         }
         
-        // 2. Sort the array: Push "needsAmazonRestock" to the top
+        // Push alerted fast-moving components to absolute top
         tableRows.sort((a, b) => {
             if (a.needsAmazonRestock && !b.needsAmazonRestock) return -1;
             if (!a.needsAmazonRestock && b.needsAmazonRestock) return 1;
-            // Fallback: Sort alphabetically by Master SKU if both have the same status
             return a.mSku.localeCompare(b.mSku);
         });
 
-        // 3. Generate the HTML from the sorted array
         for (let row of tableRows) {
-            // Apply special styling if it needs a restock
             let rowStyle = row.needsAmazonRestock ? "background-color: #fff8e1;" : "";
             let qtyBgColor = row.needsAmazonRestock ? "#ffecb3" : "#e3f2fd";
             let qtyTextColor = row.needsAmazonRestock ? "#d84315" : "blue";
@@ -1759,7 +1852,7 @@
                     if (!processedOrders[uniqueKey]) {
                         let mapping = db.asins[asin]; 
                         
-                        // Handle both the new bundle array and provide a fallback for un-migrated old data
+                        // Handle matrix array bundle structured components smoothly
                         let mappedMasters = mapping ? (mapping.masters || []) : [];
                         if (mappedMasters.length === 0 && mapping && mapping.master) {
                             mappedMasters.push({ sku: mapping.master, pack: mapping.pack || 1 });
@@ -1769,7 +1862,7 @@
                             let logMasterNames = [];
                             let logTotalQtyDeducted = 0;
 
-                            // Loop through every Master SKU connected to this single ASIN order
+                            // Loop through every Master SKU connected to this single ASIN bundle layout matrix
                             mappedMasters.forEach(m => {
                                 let totalQtyDeducted = (ordered * m.pack);
                                 logMasterNames.push(`${m.sku} (x${m.pack})`);
@@ -1779,7 +1872,7 @@
                                 if (!dailyDeductions[orderDate]) dailyDeductions[orderDate] = {};
                                 dailyDeductions[orderDate][m.sku] = (dailyDeductions[orderDate][m.sku] || 0) + totalQtyDeducted;
 
-                                // 2. Group grand totals for the UI display & physical stock deduction
+                                // 2. Group grand totals for physical stock deduction updates
                                 totalDeductedStock[m.sku] = (totalDeductedStock[m.sku] || 0) + totalQtyDeducted; 
                             });
 
@@ -1790,7 +1883,7 @@
                                 db.liveAmazonStock[asin].qty = Math.max(0, db.liveAmazonStock[asin].qty - ordered);
                             }
 
-                            // Write to Ledger combining all parts so you see it was a bundle sale
+                            // Write to Ledger combining all structural layout fields cleanly
                             processedOrders[uniqueKey] = {
                                 date: orderDate,
                                 orderId: orderId || "N/A",
@@ -2205,25 +2298,21 @@
             let calculatedCurrentStock = 0;
 
             if (filterType === "all") {
-                // TRUE LOGIC FOR ALL DATES: Bypass the messy history ledger. 
-                // Total Purchased is mathematically exactly (Current Stock + Total Sold)
                 purchased = currentKnownStock + sold;
                 calculatedCurrentStock = currentKnownStock;
             } else {
-                // FOR DATE RANGES: Use the specific ledger additions minus sales for that period
                 purchased = purchaseTally[mSku] || 0; 
                 calculatedCurrentStock = purchased - sold;
             }
 
-            // Skip rendering if no activity in this date range (and not viewing 'all')
             if (filterType !== "all" && purchased === 0 && sold === 0) continue;
 
-            // Collect all ASINs linked to this Master SKU to make it searchable
             let linkedAsins = [];
             for (let a in db.asins) {
-                if (db.asins[a].master === mSku) linkedAsins.push(a);
+                let masters = db.asins[a].masters || [];
+                if(masters.length === 0 && db.asins[a].master) masters.push({sku: db.asins[a].master});
+                if(masters.some(m => m.sku === mSku)) linkedAsins.push(a);
             }
-            // If none linked currently, show the ones we historically sold
             if (linkedAsins.length === 0 && asinBreakdown[mSku]) linkedAsins = Array.from(asinBreakdown[mSku]);
             
             let asinDisplay = linkedAsins.join(", ") || "None";
