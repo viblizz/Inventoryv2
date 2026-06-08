@@ -195,11 +195,12 @@
     </div>
 
     <div id="ASINMapping" class="tabcontent">
-        <h3>Map Amazon ASINs to Master SKUs</h3>
+        <h3>Map Amazon ASINs & Update Live Sync</h3>
+        <p style="color: #666; font-size: 13px;">Upload your <b>Active Listings Report</b> here to map ASINs and simultaneously pull your Live Amazon Stock data.</p>
         <div class="section-box">
-            <label>Upload raw "All Listings Report" (.txt)</label>
+            <label>Upload raw "Active Listings Report" (.txt)</label>
             <input type="file" id="listingsReportFile" accept=".txt, .csv, .tsv, .xlsx">
-            <button class="btn" onclick="window.processListingsReport()">Load ASINs & SKUs to Cloud</button>
+            <button class="btn" onclick="window.processListingsReport()">Load ASINs & Live Stock to Cloud</button>
         </div>
         <div class="section-box bulk-box">
             <button class="btn btn-info" onclick="window.downloadMappingTemplate()">Download Pre-filled Template (.xlsx)</button><br>
@@ -226,8 +227,7 @@
     <div id="InventoryStatus" class="tabcontent">
         <h3>Sync Amazon Live Inventory</h3>
         <div class="section-box">
-            <input type="file" id="amazonInventoryFile" accept=".txt, .csv, .xlsx">
-            <button class="btn" onclick="window.processInventoryFile()">Calculate Live Inventory</button>
+            <p style="color: #666; font-size: 13px; margin: 0;"><strong>Notice:</strong> You no longer need to upload a separate inventory file here. Your live stock quantities are now automatically extracted and updated when you upload your Active Listings Report in the <strong>ASIN Mapping</strong> tab.</p>
         </div>
         <div class="table-responsive">
             <table id="tblInventoryStatus">
@@ -235,8 +235,8 @@
                     <tr>
                         <th>Amazon SKU (Seller SKU)</th>
                         <th>ASIN</th>
-                        <th style="background-color:#e3f2fd;">Live on Amazon</th>
                         <th>Mapped Master SKU</th>
+                        <th style="background-color:#e3f2fd;">Live on Amazon</th>
                         <th>Total Warehouse Stock</th>
                     </tr>
                 </thead>
@@ -259,7 +259,7 @@
                 <button class="btn" onclick="window.processOrderFile()">Process Orders & Sync to Cloud</button>
                 <button class="btn btn-warning" onclick="window.reverseOrderFile()">⏪ Reverse This File (Undo Mistake)</button>
             </div>
-            <p style="font-size: 12px; color: #666; margin-top: 10px;">* Orders processed here are automatically filtered for <b>Shipped/Delivered</b> status. The date is extracted from the file. Deducts from Rack first, then Warehouse, and updates Live Amazon stock. Logs directly to <b>Order History Ledger</b>.</p>
+            <p style="font-size: 12px; color: #666; margin-top: 10px;">* Orders processed here are automatically filtered for <b>Shipped/Delivered</b> status. The date is extracted from the file. Deducts from Rack first, then Warehouse, and updates Live Amazon stock based on ASIN. Logs directly to <b>Order History Ledger</b>.</p>
         </div>
         
         <div class="table-responsive"><table id="tblOrderProcessing"><thead><tr><th>Master SKU</th><th>Opening Stock</th><th>Action Processed</th><th>Closing Stock</th></tr></thead><tbody id="orderTableBody"></tbody></table></div>
@@ -435,7 +435,7 @@
 
 <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-app.js";
-    import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-database.js";
+    import { getDatabase, ref, set, update, onValue } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-database.js";
 
     // Global states
     window.tableFiltersState = {}; 
@@ -744,7 +744,8 @@
         window.saveDB = async function(newDbObj) {
             document.getElementById("sync-status").innerHTML = "⏳ Saving...";
             try {
-                await set(ref(database, 'inventory'), newDbObj);
+                // 'update' merges new data with existing data, preventing wipes
+                await update(ref(database, 'inventory'), newDbObj);
                 document.getElementById("sync-status").innerHTML = "🟢 Live Sync Active";
             } catch (error) { 
                 console.error(error); alert("Firebase Data Error."); 
@@ -1366,7 +1367,7 @@
         await saveDB(db);
     };
 
-    // --- TAB 3: ASIN MAPPING ---
+    // --- TAB 3: ASIN MAPPING & LIVE SYNC OVERWRITE ---
     window.processListingsReport = function() {
         let file = document.getElementById('listingsReportFile').files[0]; if(!file) return alert("Select a file!");
         let reader = new FileReader();
@@ -1380,7 +1381,10 @@
                 let asin = extractASIN(row); 
                 let sSku = extractSellerSKU(row); 
                 let title = row["ITEM-NAME"] || "No Title";
-                let filePrice = extractPrice(row); // Extract the price immediately
+                let filePrice = extractPrice(row); 
+                
+                // Extract quantity, defaulting to NaN if missing
+                let qty = parseInt(row["QUANTITY"] || row["QTY"]); 
 
                 if(asin) { 
                     asin = asin.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_");
@@ -1391,6 +1395,12 @@
                     } else { 
                         if(db.asins[asin].title==="No Title") db.asins[asin].title=title; 
                         if(!db.asins[asin].sellerSku) db.asins[asin].sellerSku=sSku; 
+                    }
+
+                    // Overwrite Live Amazon Stock mapped by ASIN
+                    if (!isNaN(qty)) {
+                        if (!db.liveAmazonStock) db.liveAmazonStock = {};
+                        db.liveAmazonStock[asin] = { qty: qty, sSku: sSku }; 
                     }
 
                     // Push the selling price directly to the Pricing System
@@ -1405,7 +1415,7 @@
                 }
             }); 
             await saveDB(db); 
-            alert(`${count} ASINs Loaded & Prices Sent to Pricing System!`);
+            alert(`${count} ASINs Loaded, Live Stock Extracted & Prices Sent to Pricing System!`);
         }; reader.readAsArrayBuffer(file);
     };
 
@@ -1500,56 +1510,35 @@
     };
 
     // --- TAB 4: INVENTORY STATUS (LIVE SYNC) ---
+    // Note: processInventoryFile is left here to not break old buttons, but shouldn't be needed with new ASIN map logic
     window.processInventoryFile = function() {
-        let file = document.getElementById('amazonInventoryFile').files[0]; if(!file) return alert("Select file!");
-        let reader = new FileReader();
-        reader.onload = async function(e) {
-            let data = new Uint8Array(e.target.result); let workbook = XLSX.read(data, {type: 'array'});
-            let json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
-            let db = getDB(); 
-            
-            let newLiveStockSnapshot = {}; 
-            let count = 0;
-            
-            json.forEach(rawRow => {
-                let row = normalizeRow(rawRow); 
-                let sSku = extractSellerSKU(row);
-                let asin = extractASIN(row); 
-                let qty = extractQuantity(row);
-                
-                if(sSku && qty !== undefined) { 
-                    sSku = sSku.toString().trim();
-                    asin = asin ? asin.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_") : "";
-                    newLiveStockSnapshot[sSku] = { qty: qty, asin: asin };
-                    count++;
-                }
-            });
-            
-            db.liveAmazonStock = newLiveStockSnapshot; 
-            await saveDB(db);
-            alert(`Synced ${count} Amazon SKUs to Cloud!`);
-        }; reader.readAsArrayBuffer(file);
+        alert("This functionality is now handled automatically when you upload your Active Listings Report in the ASIN Mapping tab.");
     };
 
     window.renderInventoryTable = function() {
         let db = getDB(); let html = "";
         let liveStockData = db.liveAmazonStock || {};
 
-        for (let sSku in liveStockData) { 
-            let data = liveStockData[sSku];
-            let asin = data.asin;
+        // Iterate by ASIN to match our new logic
+        for (let asin in liveStockData) { 
+            let data = liveStockData[asin];
+            let sSku = data.sSku || "N/A";
+            // Fallback to 0 if qty is somehow missing to prevent "undefined" UI bugs
+            let qty = data.qty !== undefined ? data.qty : 0; 
+            
             let mapping = db.asins[asin];
             let mSku = (mapping && mapping.master) ? mapping.master : "Not Mapped";
             let whStock = (mapping && mapping.master && db.masters[mSku] !== undefined) ? db.masters[mSku] : "N/A";
 
             html += `<tr>
                 <td><strong>${sSku}</strong></td>
-                <td>${asin || "N/A"}</td>
-                <td style="color:blue; font-weight:bold;">${data.qty}</td>
-                <td>${mSku}</td>
+                <td>${asin}</td>
+                <td style="color:#0277bd; font-weight:bold;">${mSku}</td>
+                <td style="color:blue; font-weight:bold; background-color:#e3f2fd;">${qty}</td>
                 <td>${whStock}</td>
             </tr>`; 
         }
+        
         let tbody = document.getElementById("inventoryTableBody"); 
         if(tbody) {
             tbody.innerHTML = html;
@@ -1606,10 +1595,10 @@
                             totalDeductedStock[mapping.master] = (totalDeductedStock[mapping.master] || 0) + totalQtyDeducted; 
                             totalDeductionsFound++; 
                             
-                            // 3. Deduct from Live Amazon Stock using the exact Seller SKU from this row
-                            let sSku = extractSellerSKU(row);
-                            if (sSku && db.liveAmazonStock && db.liveAmazonStock[sSku.toString().trim()]) {
-                                db.liveAmazonStock[sSku.toString().trim()].qty = Math.max(0, db.liveAmazonStock[sSku.toString().trim()].qty - ordered);
+                            // 3. NEW LOGIC: Deduct from Live Amazon Stock using the ASIN
+                            if (db.liveAmazonStock && db.liveAmazonStock[asin]) {
+                                // Subtracts the order quantity and ensures it doesn't drop below 0
+                                db.liveAmazonStock[asin].qty = Math.max(0, db.liveAmazonStock[asin].qty - ordered);
                             }
 
                             processedOrders[uniqueKey] = {
@@ -1704,10 +1693,9 @@
                         revertedStock[processedData.master] = (revertedStock[processedData.master] || 0) + revertQty; 
                         totalRevertsFound++; 
                         
-                        // Add back to Live Stock using the exact Seller SKU
-                        let sSku = extractSellerSKU(row);
-                        if (sSku && db.liveAmazonStock && db.liveAmazonStock[sSku.toString().trim()]) {
-                            db.liveAmazonStock[sSku.toString().trim()].qty += ordered; 
+                        // Add back to Live Stock using the ASIN
+                        if (db.liveAmazonStock && db.liveAmazonStock[asin]) {
+                            db.liveAmazonStock[asin].qty += ordered; 
                         }
 
                         delete processedOrders[uniqueKey]; 
