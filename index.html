@@ -779,10 +779,10 @@
 
     // UTILS
     function normalizeRow(row) { let newRow = {}; for (let key in row) { newRow[key.toString().trim().toUpperCase()] = row[key]; } return newRow; }
-    function extractASIN(row) { return row["(CHILD) ASIN"] || row["CHILD ASIN"] || row["ASIN1"] || row["ASIN"] || null; }
+    function extractASIN(row) { return row["(CHILD) ASIN"] || row["CHILD ASIN"] || row["ASIN1"] || row["ASIN"] || row["PRODUCT-ID"] || null; }
     function extractQuantity(row) { return parseInt((row["QUANTITY"] !== undefined ? row["QUANTITY"] : row["QTY"]) || 0); }
     function extractOrders(row) { return parseInt(row["QUANTITY-PURCHASED"] || row["UNITS ORDERED"] || row["ORDERED"] || 0); }
-    function extractSellerSKU(row) { return row["SELLER-SKU"] || row["SKU"] || row["MERCHANT SKU"] || null; }
+    function extractSellerSKU(row) { return row["SELLER-SKU"] || row["SKU"] || row["MERCHANT SKU"] || row["SELLER SKU"] || null; }
     function extractPrice(row) { return parseFloat(row["PRICE"] || row["YOUR PRICE"] || 0); }
     function extractOrderID(row) { return row["AMAZON-ORDER-ID"] || row["ORDER ID"] || row["ORDER-ID"] || row["ORDERID"] || null; }
 
@@ -1376,6 +1376,9 @@
             let json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
             let db = getDB(); let count = 0;
             
+            // NEW: Create a fresh object to wipe out the old corrupted data
+            let freshLiveStock = {}; 
+
             json.forEach(rawRow => {
                 let row = normalizeRow(rawRow); 
                 let asin = extractASIN(row); 
@@ -1384,7 +1387,7 @@
                 let filePrice = extractPrice(row); 
                 
                 // Extract quantity, defaulting to NaN if missing
-                let qty = parseInt(row["QUANTITY"] || row["QTY"]); 
+                let qty = extractQuantity(row); 
 
                 if(asin) { 
                     asin = asin.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_");
@@ -1397,10 +1400,9 @@
                         if(!db.asins[asin].sellerSku) db.asins[asin].sellerSku=sSku; 
                     }
 
-                    // Overwrite Live Amazon Stock mapped by ASIN
+                    // Save to the FRESH object instead of the old one mapped by ASIN
                     if (!isNaN(qty)) {
-                        if (!db.liveAmazonStock) db.liveAmazonStock = {};
-                        db.liveAmazonStock[asin] = { qty: qty, sSku: sSku }; 
+                        freshLiveStock[asin] = { qty: qty, sSku: sSku }; 
                     }
 
                     // Push the selling price directly to the Pricing System
@@ -1414,8 +1416,12 @@
                     }
                 }
             }); 
+            
+            // Overwrite the database's live stock with the clean, correctly mapped data
+            db.liveAmazonStock = freshLiveStock;
+            
             await saveDB(db); 
-            alert(`${count} ASINs Loaded, Live Stock Extracted & Prices Sent to Pricing System!`);
+            alert(`${count} ASINs Loaded, Live Stock Cleaned & Updated!`);
         }; reader.readAsArrayBuffer(file);
     };
 
