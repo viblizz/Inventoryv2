@@ -2261,15 +2261,48 @@
             return true; // "all"
         }
 
-        // 1. Tally Sales (from processedOrders)
+        // 1. Tally Sales (from processedOrders) - NOW WITH SMART BUNDLE PARSING
         let salesTally = {}; 
         let asinBreakdown = {}; 
         Object.values(db.processedOrders || {}).forEach(order => {
             if (typeof order === 'object' && isDateInRange(order.date)) {
-                let mSku = order.master;
-                salesTally[mSku] = (salesTally[mSku] || 0) + (order.qty || 0);
-                if(!asinBreakdown[mSku]) asinBreakdown[mSku] = new Set();
-                asinBreakdown[mSku].add(order.asin);
+                let rawMasterStr = order.master || "";
+                
+                // If it contains our bundle pack formatting like "SKU (x2)"
+                if (rawMasterStr.includes("(x")) {
+                    let parts = rawMasterStr.split(" + ");
+                    let sumPacks = 0;
+                    let parsedParts = [];
+                    
+                    parts.forEach(p => {
+                        let match = p.match(/(.*) \(x(\d+)\)/);
+                        if (match) {
+                            parsedParts.push({ sku: match[1].trim(), pack: parseInt(match[2]) });
+                            sumPacks += parseInt(match[2]);
+                        } else {
+                            // Fallback if formatting is unexpected
+                            parsedParts.push({ sku: p.trim(), pack: 1 });
+                            sumPacks += 1;
+                        }
+                    });
+                    
+                    // Reverse-engineer the base order quantity from the ledger total
+                    let baseOrdered = (sumPacks > 0) ? (order.qty / sumPacks) : order.qty;
+                    
+                    parsedParts.forEach(p => {
+                        let actualSold = baseOrdered * p.pack;
+                        salesTally[p.sku] = (salesTally[p.sku] || 0) + actualSold;
+                        if(!asinBreakdown[p.sku]) asinBreakdown[p.sku] = new Set();
+                        asinBreakdown[p.sku].add(order.asin);
+                    });
+                    
+                } else {
+                    // Standard/Legacy order mapping
+                    let mSku = rawMasterStr.trim();
+                    salesTally[mSku] = (salesTally[mSku] || 0) + (order.qty || 0);
+                    if(!asinBreakdown[mSku]) asinBreakdown[mSku] = new Set();
+                    asinBreakdown[mSku].add(order.asin);
+                }
             }
         });
 
@@ -2298,21 +2331,27 @@
             let calculatedCurrentStock = 0;
 
             if (filterType === "all") {
+                // TRUE LOGIC FOR ALL DATES: Bypass the messy history ledger. 
+                // Total Purchased is mathematically exactly (Current Stock + Total Sold)
                 purchased = currentKnownStock + sold;
                 calculatedCurrentStock = currentKnownStock;
             } else {
+                // FOR DATE RANGES: Use the specific ledger additions minus sales for that period
                 purchased = purchaseTally[mSku] || 0; 
                 calculatedCurrentStock = purchased - sold;
             }
 
+            // Skip rendering if no activity in this date range (and not viewing 'all')
             if (filterType !== "all" && purchased === 0 && sold === 0) continue;
 
+            // Collect all ASINs linked to this Master SKU to make it searchable
             let linkedAsins = [];
             for (let a in db.asins) {
                 let masters = db.asins[a].masters || [];
                 if(masters.length === 0 && db.asins[a].master) masters.push({sku: db.asins[a].master});
                 if(masters.some(m => m.sku === mSku)) linkedAsins.push(a);
             }
+            // If none linked currently, show the ones we historically sold
             if (linkedAsins.length === 0 && asinBreakdown[mSku]) linkedAsins = Array.from(asinBreakdown[mSku]);
             
             let asinDisplay = linkedAsins.join(", ") || "None";
