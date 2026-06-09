@@ -274,7 +274,6 @@
         <h3>3-Day Sales Tracking & Alerts</h3>
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
             <p style="color: #666; font-size: 13px; margin: 0;">Shows daily breakdown, calculates your daily average, and sets the Target Stock required for the next 3 days based on that average.</p>
-            <button class="btn btn-warning btn-small" onclick="window.resetSalesTrends()">⚠️ Start Fresh (Reset Sales to Zero)</button>
         </div>
         <div class="table-responsive">
             <table id="tblSalesAlerts">
@@ -362,10 +361,6 @@
                     <input type="date" id="ledgerEndDate" onchange="window.renderOrderHistoryTable()" style="margin-bottom: 0; width: 150px;">
                 </div>
             </div>
-            
-            <div style="margin-left: auto;">
-                <button class="btn btn-danger btn-small" onclick="window.clearAllOrderHistory()">🗑️ Erase All Order History</button>
-            </div>
         </div>
 
         <div class="table-responsive">
@@ -377,7 +372,6 @@
                         <th>Master SKU</th>
                         <th>ASIN</th>
                         <th>Qty Deducted</th>
-                        <th style="width: 80px;">Action</th>
                     </tr>
                 </thead>
                 <tbody id="orderHistoryTableBody"></tbody>
@@ -413,10 +407,6 @@
                     <label>End Date:</label>
                     <input type="date" id="tallyEndDate" onchange="window.renderTallyTable()" style="margin-bottom: 0; width: 150px;">
                 </div>
-            </div>
-
-            <div style="margin-left: auto;">
-                <button class="btn btn-danger btn-small" onclick="window.clearAllPurchaseHistory()">🗑️ Erase All Purchase History</button>
             </div>
         </div>
 
@@ -785,7 +775,7 @@
         window.renderMasterStockTable();
         window.renderLocationsTable();
         window.renderASINMappingTable();
-        window.renderInventoryTable(); // NEW: Render saved Live Sync data
+        window.renderInventoryTable(); 
         window.renderSalesAlertsTable();
         window.renderPricingTable(); 
         window.renderOrderHistoryTable();
@@ -802,15 +792,12 @@
         let val = row["(CHILD) ASIN"] || row["CHILD ASIN"] || row["ASIN1"] || row["ASIN"] || row["PRODUCT-ID"] || null; 
         if (!val) return null;
         val = val.toString().trim().toUpperCase();
-        // Strict Validation: ASINs don't have spaces and are generally ~10 chars long.
-        // This prevents product titles from being sucked into the ASIN column!
         if (val.includes(' ') || val.length > 15 || val.length < 8) return null; 
         return val; 
     }
     
     function extractQuantity(row) { 
         let val = row["QUANTITY"] !== undefined ? row["QUANTITY"] : row["QTY"]; 
-        // Return NaN if the column is entirely missing, this protects the DB from resetting to 0
         if (val === undefined || val === null || val === "") return NaN;
         return parseInt(val); 
     }
@@ -2008,31 +1995,111 @@
     };
 
     // --- TAB 6: SALES ALERTS & RESET FEATURE ---
-    window.resetSalesTrends = async function() {
-        if(!confirm("Are you sure you want to erase all 3-Day Sales history? This will set all Day 1, 2, and 3 data to zero. Order History Ledger will NOT be deleted.")) return;
-        let db = getDB();
-        db.sales = {}; 
-        await saveDB(db);
-        alert("Sales Trends have been reset to zero.");
-    };
-
     window.renderSalesAlertsTable = function() {
-        let db = getDB(); let html = "";
+        let db = getDB(); 
+        let html = "";
+        
+        // 1. Get all unique dates from the Ledger
+        let uniqueDates = new Set();
+        let parsedLedger = [];
+        
+        Object.values(db.processedOrders || {}).forEach(order => {
+            if(order && order.date) {
+                uniqueDates.add(order.date);
+                parsedLedger.push(order);
+            }
+        });
+        
+        // 2. Sort dates descending (newest first) and grab the top 3
+        // Then reverse to get chronological order: [Oldest, Middle, Newest]
+        let sortedUniqueDates = Array.from(uniqueDates).sort((a, b) => new Date(b) - new Date(a)).slice(0, 3).reverse(); 
+
+        let day1Date = sortedUniqueDates[0] || "Day 1";
+        let day2Date = sortedUniqueDates[1] || "Day 2";
+        let day3Date = sortedUniqueDates[2] || "Day 3";
+        
+        // 3. Aggregate sales per Master SKU for these specific 3 dates
+        let trendData = {};
+        for(let sku in db.masters) {
+            trendData[sku] = { day1: 0, day2: 0, day3: 0 };
+        }
+        
+        parsedLedger.forEach(order => {
+            let targetDay = null;
+            if(order.date === day1Date) targetDay = 'day1';
+            else if(order.date === day2Date) targetDay = 'day2';
+            else if(order.date === day3Date) targetDay = 'day3';
+            
+            if(targetDay) {
+                let rawMasterStr = order.master || "";
+                
+                if (rawMasterStr.includes("(x")) {
+                    // Smart Bundle Parser
+                    let parts = rawMasterStr.split(" + ");
+                    let sumPacks = 0;
+                    let parsedParts = [];
+                    
+                    parts.forEach(p => {
+                        let match = p.match(/(.*) \(x(\d+)\)/);
+                        if (match) {
+                            parsedParts.push({ sku: match[1].trim(), pack: parseInt(match[2]) });
+                            sumPacks += parseInt(match[2]);
+                        } else {
+                            parsedParts.push({ sku: p.trim(), pack: 1 });
+                            sumPacks += 1;
+                        }
+                    });
+                    
+                    let baseOrdered = (sumPacks > 0) ? (order.qty / sumPacks) : order.qty;
+                    
+                    parsedParts.forEach(p => {
+                        if(trendData[p.sku]) trendData[p.sku][targetDay] += (baseOrdered * p.pack);
+                    });
+                } else {
+                    // Standard Legacy Parser
+                    let mSku = rawMasterStr.trim();
+                    if(trendData[mSku]) trendData[mSku][targetDay] += (order.qty || 0);
+                }
+            }
+        });
+
+        // 4. Dynamic Table Headers (Updates dates automatically based on your ledger)
+        let thead = document.querySelector("#tblSalesAlerts thead tr");
+        if (thead) {
+            thead.innerHTML = `
+                <th>Master SKU</th>
+                <th>${day1Date}</th>
+                <th>${day2Date}</th>
+                <th style="background-color:#f8f9fa;">${day3Date} (Recent)</th>
+                <th>Total 3 Days</th>
+                <th style="background-color:#e2e3e5;">Daily Average</th>
+                <th style="background-color:#d1ecf1; color:#0c5460;">Target Req (Next 3 Days)</th>
+                <th>Current Total Stock</th>
+                <th>Status</th>
+            `;
+        }
+
+        // 5. Generate Table Body
         for (let sku in db.masters) {
-            let currentStock = db.masters[sku]; let history = db.sales[sku] || []; 
-            let day1 = history.length > 0 ? history[0] : 0;
-            let day2 = history.length > 1 ? history[1] : 0;
-            let day3 = history.length > 2 ? history[2] : 0;
+            let currentStock = db.masters[sku]; 
+            
+            let day1 = trendData[sku].day1;
+            let day2 = trendData[sku].day2;
+            let day3 = trendData[sku].day3;
             
             let sum = day1 + day2 + day3;
-            let avg = history.length > 0 ? (sum / history.length).toFixed(1) : 0;
+            let divisor = sortedUniqueDates.length > 0 ? sortedUniqueDates.length : 1;
+            let avg = (sum / divisor).toFixed(1);
             let targetReq = (avg * 3).toFixed(0); 
             
+            // Keeps the UI clean by skipping items with 0 stock and 0 sales
+            if (sum === 0 && currentStock === 0) continue;
+
             let statusHtml = (currentStock < targetReq) ? `<span style="color: red; font-weight: bold;">🚨 Need to Restock</span>` : `<span style="color: green; font-weight: bold;">✅ Healthy</span>`;
             
             html += `<tr>
                 <td><strong>${sku}</strong></td>
-                <td>${day1}</td><td>${day2}</td><td>${day3}</td>
+                <td>${day1}</td><td>${day2}</td><td style="background-color:#f8f9fa; font-weight:bold;">${day3}</td>
                 <td style="color:blue; font-weight:bold;">${sum}</td>
                 <td style="background-color:#e2e3e5; font-weight:bold;">${avg} / day</td>
                 <td style="background-color:#d1ecf1; font-weight:bold; color:#0c5460;">${targetReq}</td>
@@ -2040,9 +2107,10 @@
                 <td>${statusHtml}</td>
             </tr>`;
         }
+        
         let tbody = document.getElementById("salesAlertsTableBody"); 
         if(tbody) {
-            tbody.innerHTML = html;
+            tbody.innerHTML = html || "<tr><td colspan='9' style='text-align:center;'>No recent sales history found.</td></tr>";
             setTimeout(() => window.buildTableFilters("tblSalesAlerts"), 50);
         }
     };
@@ -2159,24 +2227,6 @@
         window.renderOrderHistoryTable(); 
     };
 
-    window.deleteOrderRecord = async function(key) {
-        if(!confirm("Are you sure you want to erase this specific order record from the ledger? (Note: This updates the Tally, but DOES NOT add units back to Master Stock).")) return;
-        let db = getDB();
-        if(db.processedOrders && db.processedOrders[key]) {
-            delete db.processedOrders[key];
-            await saveDB(db);
-            alert("Record deleted.");
-        }
-    };
-
-    window.clearAllOrderHistory = async function() {
-        if(!confirm("Are you sure you want to erase ALL order history? This will reset your stock tally deductions. Master stock balances will NOT be changed.")) return;
-        let db = getDB();
-        db.processedOrders = {};
-        await saveDB(db);
-        alert("All Order History erased.");
-    };
-
     window.renderOrderHistoryTable = function() {
         let db = getDB(); let html = "";
         
@@ -2211,13 +2261,12 @@
                 <td style="color:#0277bd; font-weight:bold;">${order.master}</td>
                 <td>${order.asin}</td>
                 <td style="color:red; font-weight:bold;">- ${order.qty} Units</td>
-                <td><button class="btn btn-danger btn-small" onclick="window.deleteOrderRecord('${order.uniqueKey}')">🗑️ Erase</button></td>
             </tr>`;
         }
         
         let tbody = document.getElementById("orderHistoryTableBody"); 
         if(tbody) {
-            tbody.innerHTML = html || "<tr><td colspan='6' style='text-align:center;'>No orders found for selected dates.</td></tr>";
+            tbody.innerHTML = html || "<tr><td colspan='5' style='text-align:center;'>No orders found for selected dates.</td></tr>";
             setTimeout(() => window.buildTableFilters("tblOrderHistory"), 50);
         }
     };
@@ -2228,14 +2277,6 @@
         document.getElementById("tallyExactDateDiv").style.display = filterType === "exact" ? "block" : "none";
         document.getElementById("tallyRangeDateDiv").style.display = filterType === "range" ? "flex" : "none";
         window.renderTallyTable(); 
-    };
-
-    window.clearAllPurchaseHistory = async function() {
-        if(!confirm("Are you sure you want to erase ALL purchase history? This will reset your total purchased tally. Master stock balances will NOT be changed.")) return;
-        let db = getDB();
-        db.purchaseHistory = [];
-        await saveDB(db);
-        alert("All Purchase History erased.");
     };
 
     window.renderTallyTable = function() {
