@@ -40,6 +40,7 @@
         .chart-container { background: white; padding: 15px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.04); border: 1px solid #e9ecef; }
         
         .report-section { background: white; padding: 20px; border-radius: 10px; border: 1px solid #e9ecef; box-shadow: 0 4px 10px rgba(0,0,0,0.04); margin-bottom: 20px; display: none; }
+        .report-section.active { display: block; }
         .report-section h3 { margin-top: 0; border-bottom: 2px solid #f1f1f1; padding-bottom: 10px; color: #333; }
         .report-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 15px; }
         .report-box { background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center; border: 1px solid #dee2e6; }
@@ -73,6 +74,12 @@
         th, td { padding: 8px; text-align: left; vertical-align: middle; }
         th { background-color: #007bff; color: white; position: sticky; top: 0; z-index: 10; }
         
+        /* Modals */
+        .modal { display: none; position: fixed; z-index: 10000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.5); }
+        .modal-content { background-color: #fefefe; margin: 5% auto; padding: 20px; border: 1px solid #888; width: 90%; max-width: 900px; border-radius: 8px; position: relative; box-shadow: 0 4px 15px rgba(0,0,0,0.2); }
+        .close-btn { color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; }
+        .close-btn:hover { color: black; }
+
         .filter-container { position: relative; width: 100%; margin-top: 4px; font-weight: normal; }
         .filter-button { width: 100%; padding: 4px 6px; text-align: left; font-size: 11px; background: #fff; color: #333; border: 1px solid #ccc; border-radius: 3px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; box-sizing: border-box; }
         .filter-dropdown { position: absolute; top: 100%; left: 0; width: 220px; background: white; border: 1px solid #ccc; box-shadow: 0 4px 8px rgba(0,0,0,0.2); z-index: 9999; display: none; flex-direction: column; color: #333; }
@@ -291,7 +298,9 @@
                 <div style="border-left: 2px solid #ccc; height: 30px; margin: 0 10px;"></div>
                 <button class="btn btn-dark" id="applyFeesBtn" onclick="window.applyCalculatedFees()" style="display:none;">💾 Apply Auto-Calculated Fees to Pricing System</button>
             </div>
-            <p style="font-size: 11px; color: gray; margin-top:10px;">* Filters out Service Fees, Adjustments, and Storage Fees. Only actual order deductions are averaged.</p>
+            <p style="font-size: 11px; color: gray; margin-top:10px;">* Filters out Service Fees, Adjustments, and Storage Fees. Automatically detects header row. Only actual order deductions are averaged.</p>
+            <div id="feeSummaryMsg" style="margin-top:15px; display:none; padding:10px; background:#e8f5e9; border:1px solid #c8e6c9; border-radius:5px; color:#2e7d32; font-weight:bold;">
+                </div>
         </div>
 
         <div class="table-responsive">
@@ -311,6 +320,35 @@
                     <tr><td colspan="7" style="text-align:center;">Upload a transaction report to calculate fees.</td></tr>
                 </tbody>
             </table>
+        </div>
+    </div>
+
+
+    <div id="drilldownModal" class="modal">
+        <div class="modal-content">
+            <span class="close-btn" onclick="document.getElementById('drilldownModal').style.display='none'">&times;</span>
+            <h3 id="drilldownTitle" style="margin-top:0; color:#007bff; border-bottom:2px solid #f1f1f1; padding-bottom:10px;">Inventory Details</h3>
+            
+            <div class="action-bar" style="margin-bottom:15px; background:#f8f9fa; padding:10px; border-radius:5px; border:1px solid #ddd;">
+                <input type="text" id="drilldownSearch" placeholder="Search SKU in list..." onkeyup="window.filterDrilldown()" style="width:250px; margin-bottom:0;">
+                <button class="btn btn-info" onclick="window.exportDrilldown()">⬇️ Export Excel</button>
+            </div>
+            
+            <div class="table-responsive" style="min-height:auto; max-height:500px;">
+                <table id="tblDrilldown">
+                    <thead>
+                        <tr>
+                            <th>SKU</th>
+                            <th>Current Stock</th>
+                            <th>Purchase Price</th>
+                            <th>Inventory Value</th>
+                            <th>Contribution %</th>
+                        </tr>
+                    </thead>
+                    <tbody id="drilldownBody">
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 
@@ -518,7 +556,7 @@
 
     <div id="PricingSystem" class="tabcontent">
         <h3>SKU Pricing & Profit Calculator</h3>
-        <p style="color: #666; font-size: 13px;">Upload your <b>All Listings Report</b> in ASIN Mapping to fetch SKUs and auto-update your Current Selling Prices.</p>
+        <p style="color: #666; font-size: 13px;">Upload your <b>All Listings Report</b> in ASIN Mapping to fetch SKUs and auto-update your Current Selling Prices. Alternatively, upload Transaction reports in the Amz Fees tab.</p>
         
         <div class="section-box">
             <label>Update Pricing SKUs & Selling Prices (Upload "All Listings Report" here too if needed):</label>
@@ -923,12 +961,15 @@
         if(tabName === 'DashboardTab') window.renderDashboard(); 
     };
     
+    // FIX: Removed active class from all, add to target, auto smooth-scroll
     window.toggleDashboardReport = function(reportId) {
+        console.log(reportId + ' Clicked');
         let el = document.getElementById(reportId);
-        if(el.classList.contains('active')) {
-            el.classList.remove('active');
-        } else {
-            document.querySelectorAll('.report-section').forEach(r => r.classList.remove('active'));
+        let isActive = el.classList.contains('active');
+        
+        document.querySelectorAll('.report-section').forEach(r => r.classList.remove('active'));
+        
+        if(!isActive) {
             el.classList.add('active');
             el.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
@@ -1347,6 +1388,7 @@
             document.getElementById('dashHighestConsumptionSubtitle').innerText = "0 Units Consumed";
         }
         
+        // FIX: Ensure slice(0,15) is strictly enforced for Top 15 display
         let consHtml = '';
         consMetrics.slice(0, 15).forEach((item, idx) => {
             consHtml += `<tr>
@@ -1401,10 +1443,60 @@
         });
         document.getElementById('dashProfitBody').innerHTML = profHtml || '<tr><td colspan="5">No sales in 30 days</td></tr>';
 
-        renderDashboardCharts(ordersArray, valMetrics.valuationList, consMetrics, sevenDaysAgo);
+        renderDashboardCharts(ordersArray, valMetrics.valuationList, consMetrics, sevenDaysAgo, valMetrics.totalValue);
     };
 
-    function renderDashboardCharts(ordersArray, valuationList, consMetrics, sevenDaysAgo) {
+    // FIX: Drilldown logic execution
+    window.openChartDrilldown = function(label, valuationList, totalVal) {
+        let title = label === 'Others' ? "Other Products (<5% Value)" : `Details for ${label}`;
+        document.getElementById("drilldownTitle").innerText = title;
+        
+        let filteredData = [];
+        let threshold = totalVal * 0.05;
+
+        if (label === 'Others') {
+            filteredData = valuationList.filter(i => i.val > 0 && i.val < threshold);
+        } else {
+            filteredData = valuationList.filter(i => i.sku === label);
+        }
+
+        filteredData.sort((a, b) => b.val - a.val);
+
+        let html = "";
+        filteredData.forEach(i => {
+            let pct = totalVal > 0 ? (i.val / totalVal) * 100 : 0;
+            html += `<tr>
+                <td><strong>${i.sku}</strong></td>
+                <td>${i.qty}</td>
+                <td>₹${i.cost.toFixed(2)}</td>
+                <td style="font-weight:bold; color:#0277bd;">₹${i.val.toLocaleString()}</td>
+                <td>${pct.toFixed(2)}%</td>
+            </tr>`;
+        });
+
+        document.getElementById("drilldownBody").innerHTML = html || '<tr><td colspan="5">No data</td></tr>';
+        document.getElementById("drilldownModal").style.display = "block";
+    };
+
+    window.filterDrilldown = function() {
+        let filter = document.getElementById("drilldownSearch").value.toUpperCase();
+        let rows = document.getElementById("drilldownBody").getElementsByTagName("tr");
+        for (let i = 0; i < rows.length; i++) {
+            let td = rows[i].getElementsByTagName("td")[0];
+            if (td) {
+                let txtValue = td.textContent || td.innerText;
+                rows[i].style.display = txtValue.toUpperCase().indexOf(filter) > -1 ? "" : "none";
+            }       
+        }
+    };
+
+    window.exportDrilldown = function() {
+        let table = document.getElementById("tblDrilldown");
+        let workbook = XLSX.utils.table_to_book(table, {sheet: "Drilldown Data"});
+        XLSX.writeFile(workbook, "Inventory_Drilldown.xlsx");
+    };
+
+    function renderDashboardCharts(ordersArray, valuationList, consMetrics, sevenDaysAgo, totalVal) {
         // Chart 1: Sales Line
         let last7Days = [];
         for(let i=6; i>=0; i--) last7Days.push(getDaysAgoStr(i));
@@ -1436,7 +1528,7 @@
             options: { responsive: true, plugins: { title: { display: true, text: 'Inventory Consumption (Last 7 Days)' } } }
         });
 
-        // Chart 2: Top Consuming SKUs
+        // Chart 2: Top Consuming SKUs (FIX: Top 15 strict limit)
         let top15Cons = consMetrics.slice(0, 15);
         if(window.chartInstances.topSkusChart) window.chartInstances.topSkusChart.destroy();
         window.chartInstances.topSkusChart = new Chart(document.getElementById('topSkusChart'), {
@@ -1452,23 +1544,19 @@
             options: { responsive: true, plugins: { title: { display: true, text: 'Top 15 Inventory Consuming Products' } } }
         });
 
-        // Chart 3: Inventory Value (Pie logic fix)
+        // Chart 3: Inventory Value (Pie logic fix with Drilldown)
         valuationList.sort((a,b) => b.val - a.val);
-        let top10Val = valuationList.slice(0, 10);
-        let remainingVal = valuationList.slice(10);
         
-        let pieLabels = top10Val.map(i => i.sku);
-        let pieData = top10Val.map(i => i.val);
-        
-        let totalVal = valuationList.reduce((sum, item) => sum + item.val, 0);
+        let pieLabels = [];
+        let pieData = [];
         let othersTotal = 0;
         let threshold = totalVal * 0.05; 
         
-        remainingVal.forEach(item => {
+        valuationList.forEach(item => {
             if(item.val >= threshold && item.val > 0) {
                 pieLabels.push(item.sku);
                 pieData.push(item.val);
-            } else {
+            } else if (item.val > 0) {
                 othersTotal += item.val;
             }
         });
@@ -1488,7 +1576,17 @@
                     backgroundColor: ['#007bff', '#6f42c1', '#20c997', '#ffc107', '#dc3545', '#e9ecef', '#17a2b8', '#fd7e14', '#28a745', '#6c757d', '#343a40', '#e83e8c']
                 }]
             },
-            options: { responsive: true, plugins: { title: { display: true, text: 'Inventory Value Distribution' } } }
+            options: { 
+                responsive: true, 
+                plugins: { title: { display: true, text: 'Inventory Value Distribution (Click to drill down)' } },
+                onClick: (event, elements) => {
+                    if (elements && elements.length > 0) {
+                        let idx = elements[0].index;
+                        let clickedLabel = pieLabels[idx];
+                        window.openChartDrilldown(clickedLabel, valuationList, totalVal);
+                    }
+                }
+            }
         });
     }
 
@@ -1586,7 +1684,7 @@
         return recoveredCount;
     }
 
-    // --- NEW: AMAZON FEE ENGINE ---
+    // --- FIX: AMAZON FEE ENGINE ---
     window.processTransactionReport = function() {
         let file = document.getElementById('feeReportFile').files[0];
         if(!file) return alert("Select Amazon Transaction Report file!");
@@ -1595,10 +1693,22 @@
         reader.onload = async function(e) {
             let data = new Uint8Array(e.target.result); 
             let workbook = XLSX.read(data, {type: 'array'});
-            let json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+            
+            // Read as 2D array first to find the true header mathematically
+            let rawArray = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], {header: 1});
+            
+            let headerIndex = rawArray.findIndex(row => {
+                let rStr = row.map(c => String(c).toLowerCase()).join(" ");
+                return rStr.includes('date/time') && (rStr.includes('type') || rStr.includes('transaction type')) && rStr.includes('sku');
+            });
+
+            if(headerIndex === -1) headerIndex = 0; // Fallback to normal parsing if standard format
+
+            // Reparse the sheet explicitly using the found header row
+            let json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], {range: headerIndex});
             
             let skuData = {};
-            let ignoreTypes = ["SERVICE FEE", "TRANSFER", "ADJUSTMENT", "STORAGE FEE", "RESERVE", "FBA INVENTORY FEE"];
+            let ignoreTypes = ["SERVICE FEE", "TRANSFER", "ADJUSTMENT", "STORAGE FEE", "RESERVE", "ACCOUNT LEVEL RESERVE", "FBA INVENTORY FEE"];
 
             json.forEach(rawRow => {
                 let row = normalizeRow(rawRow);
@@ -1639,12 +1749,18 @@
 
             let html = "";
             let skuCount = 0;
+            let totalRevMetric = 0;
+            let totalAmzFeeMetric = 0;
+            
             for(let sku in skuData) {
                 let d = skuData[sku];
                 let rev = d.prodSales + d.shipCredits;
                 let avgAmz = Math.abs(d.sellingFees) / d.qty;
                 let avgDel = Math.abs(d.fbaFees) / d.qty;
                 let avgOther = Math.abs(d.otherFees) / d.qty;
+                
+                totalRevMetric += rev;
+                totalAmzFeeMetric += Math.abs(d.sellingFees);
                 
                 html += `<tr>
                     <td><strong>${sku}</strong></td>
@@ -1662,6 +1778,11 @@
             
             if(skuCount > 0) {
                 document.getElementById('applyFeesBtn').style.display = 'inline-block';
+                let msgDiv = document.getElementById('feeSummaryMsg');
+                msgDiv.innerHTML = `Transaction Report Processed Successfully<br>SKUs Updated: ${skuCount}<br>Total Revenue: ₹${totalRevMetric.toFixed(2)}<br>Amazon Fees: ₹${totalAmzFeeMetric.toFixed(2)}`;
+                msgDiv.style.display = 'block';
+            } else {
+                document.getElementById('feeSummaryMsg').style.display = 'none';
             }
             
         }; 
