@@ -105,6 +105,39 @@
         .highlight-col { background-color: #f8f9fa; font-weight: bold; }
         .profit-col { font-weight: bold; }
         .action-bar { display: flex; gap: 15px; align-items: center; flex-wrap: wrap; }
+
+/* PREMIUM DASHBOARD ENHANCEMENTS */
+.premium-dashboard { display: flex; flex-direction: column; gap: 25px; padding-top: 10px; --surface: #ffffff; --bg-master: #f4f6f9; --surface-hover: #f8f9fa; --text-standard: #333333; --text-secondary: #6c757d; --accent: #007bff; }
+
+/* Section 1: KPI Bar */
+.kpi-bar { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; }
+.kpi-card { background: var(--surface); border-radius: 12px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border: 1px solid #e9ecef; transition: all 0.3s ease; display: flex; flex-direction: column; cursor: pointer; position: relative; overflow: hidden; }
+.kpi-card:hover { transform: translateY(-3px); box-shadow: 0 8px 25px rgba(0,0,0,0.1); background: var(--surface-hover); border-color: #dee2e6; }
+.kpi-title { font-size: 12px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-secondary); font-weight: 600; margin-bottom: 8px; }
+.kpi-value { font-size: 28px; font-weight: 700; color: var(--text-standard); margin: 0; }
+.kpi-subtitle { font-size: 11px; color: var(--accent); font-weight: 600; margin-top: 8px; display: flex; align-items: center; gap: 5px; }
+
+/* Section 2 & 3: Action Center & Charts */
+.action-charts-layout { display: grid; grid-template-columns: 350px 1fr; gap: 25px; }
+
+.action-center { background: var(--surface); border-radius: 12px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border-top: 4px solid var(--accent); }
+.action-center h3 { margin-top: 0; margin-bottom: 15px; border-bottom: 1px solid var(--bg-master); padding-bottom: 10px; font-size: 16px; }
+.action-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 15px; margin-bottom: 8px; border-radius: 8px; background: var(--bg-master); cursor: pointer; transition: all 0.2s; border: 1px solid transparent; }
+.action-row:hover { border-color: #dee2e6; transform: translateX(3px); background: white; }
+.action-row .title { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+
+.charts-wrapper { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.chart-premium { background: var(--surface); padding: 15px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border: 1px solid #e9ecef; }
+
+/* Section 4: Quick Actions */
+.quick-actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 10px; }
+.btn-icon { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-radius: 8px; font-weight: 600; font-size: 12px; background: white; border: 1px solid #dee2e6; color: var(--text-standard); cursor: pointer; transition: all 0.2s; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+.btn-icon:hover { background: var(--surface-hover); border-color: var(--accent); box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+
+/* Slide Down Reports */
+.premium-report { max-height: 0; overflow: hidden; opacity: 0; transition: max-height 0.4s cubic-bezier(0, 1, 0, 1), opacity 0.4s ease-in-out, padding 0.4s ease-in-out; margin: 0; padding: 0 20px; background: var(--surface); border-radius: 12px; border: 1px solid transparent; }
+.premium-report.active { max-height: 3000px; opacity: 1; padding: 25px 20px; margin-top: 20px; border-color: #dee2e6; box-shadow: 0 10px 30px rgba(0,0,0,0.1); transition: max-height 0.6s ease-in-out, opacity 0.4s ease-in-out, padding 0.4s ease-in-out; }
+        
     </style>
 </head>
 <body>
@@ -133,157 +166,129 @@
         <button class="tablinks" onclick="window.openTab(event, 'AmazonFeeEngine')" style="background-color: #fff3cd; color: #856404;">11. Amz Fees</button>
     </div>
 
-    <div id="DashboardTab" class="tabcontent" style="display:block; background-color: #f4f6f9; border: none; padding-top: 20px;">
-        
-        <div class="dashboard-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
-            <div class="dash-card orange">
-                <h4>Pending Mapping</h4>
-                <h2 id="dashPendingOrders">0</h2>
-                <div id="dashPendingUnits" style="font-size: 13px; color: #aaa; margin-top: 5px; font-weight: bold;">0 Units</div>
-            </div>
-            <div class="dash-card red">
-                <h4>Stock Shortage</h4>
-                <h2 id="dashShortageOrders">0</h2>
-                <div id="dashShortageUnits" style="font-size: 13px; color: #aaa; margin-top: 5px; font-weight: bold;">0 Units Missing</div>
-            </div>
-            <div class="dash-card green">
-                <h4>Recovered Orders</h4>
-                <h2 id="dashRecoveredOrders">0</h2>
-                <div style="font-size: 13px; color: #aaa; margin-top: 5px; font-weight: bold;">Auto-Reconciled</div>
-            </div>
-            <div class="dash-card blue" onclick="window.openTab(event, 'AmazonFeeEngine')">
-                <h4>Amazon Fees Synced</h4>
-                <h2 id="dashFeeSyncDate">-</h2>
-                <div id="dashFeeSyncCount" style="font-size: 13px; color: #aaa; margin-top: 5px; font-weight: bold;">0 SKUs Updated</div>
+    <div id="DashboardTab" class="tabcontent premium-dashboard" style="display:block; border: none;">
+    
+    <!-- SECTION 1: EXECUTIVE KPI BAR -->
+    <div class="kpi-bar">
+        <div class="kpi-card" onclick="window.toggleDashboardReport('InventoryValueReport')">
+            <div class="kpi-title">Running Inventory Value</div>
+            <div class="kpi-value" id="kpiRunValue">₹0</div>
+            <div class="kpi-subtitle"><span>🔒</span> <span id="kpiDeadValue" style="color: #6c757d;">₹0 Locked in Dead Stock</span></div>
+        </div>
+        <div class="kpi-card" onclick="window.toggleDashboardReport('InventoryValueReport')">
+            <div class="kpi-title">Running Units</div>
+            <div class="kpi-value" id="kpiRunUnits">0</div>
+            <div class="kpi-subtitle"><span>💀</span> <span id="kpiDeadUnits" style="color: #6c757d;">0 Dead Stock Units</span></div>
+        </div>
+        <div class="kpi-card" onclick="window.toggleDashboardReport('ConsumptionReport')">
+            <div class="kpi-title">Running SKUs (90d)</div>
+            <div class="kpi-value" id="kpiRunSkus">0</div>
+            <div class="kpi-subtitle"><span>💀</span> <span id="kpiDeadSkus" style="color: #6c757d;">0 Dead SKUs</span></div>
+        </div>
+        <div class="kpi-card" onclick="window.openTab(event, 'OrderHistory')">
+            <div class="kpi-title">Today's Orders</div>
+            <div class="kpi-value" id="kpiTodayOrders">0</div>
+            <div class="kpi-subtitle" style="color:#6c757d;">
+                7d: <span id="kpi7dOrders">0</span> | 30d: <span id="kpi30dOrders">0</span>
             </div>
         </div>
-
-        <div class="dashboard-grid">
-            <div class="dash-card" onclick="window.toggleDashboardReport('InventoryValueReport')">
-                <h4>Total SKUs</h4><h2 id="dashTotalSkus">0</h2>
-            </div>
-            <div class="dash-card blue" onclick="window.toggleDashboardReport('InventoryValueReport')">
-                <h4>Inventory Units</h4><h2 id="dashTotalUnits">0</h2>
-            </div>
-            <div class="dash-card purple" onclick="window.toggleDashboardReport('InventoryValueReport')">
-                <h4>Inventory Value</h4><h2 id="dashTotalValue">₹0</h2>
-            </div>
-            <div class="dash-card green" onclick="window.openTab(event, 'OrderHistory')">
-                <div style="display:flex; justify-content:space-between; align-items:flex-end; width: 100%;">
-                    <div><h4>Today's Orders</h4><h2 id="dashTodayOrders" style="font-size:26px;">0</h2></div>
-                    <div style="text-align:center;"><h4>7 Days</h4><h2 id="dashWeekOrders" style="font-size:16px;">0</h2></div>
-                    <div style="text-align:right;"><h4>30 Days</h4><h2 id="dashMonthOrders" style="font-size:16px;">0</h2></div>
-                </div>
-            </div>
-            <div class="dash-card yellow" onclick="window.toggleDashboardReport('LowStockReport')">
-                <h4>Low Stock</h4><h2 id="dashLowStock">0 Products</h2>
-            </div>
-            <div class="dash-card red" onclick="window.toggleDashboardReport('DeadStockReport')">
-                <h4>Dead Stock</h4><h2 id="dashDeadStock">0 Products</h2>
-            </div>
-            <div class="dash-card teal" onclick="window.toggleDashboardReport('ProfitReport')">
-                <h4>Today's Profit</h4><h2 id="dashTodayProfit">₹0</h2>
-            </div>
-            <div class="dash-card dark" onclick="window.toggleDashboardReport('ConsumptionReport')">
-                <h4>Highest Consumption (30d)</h4>
-                <h2 id="dashHighestConsumption" style="font-size: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">-</h2>
-                <div id="dashHighestConsumptionSubtitle" style="font-size: 13px; color: #aaa; margin-top: 5px; font-weight: bold;">0 Units Consumed</div>
-            </div>
+        <div class="kpi-card" onclick="window.toggleDashboardReport('ProfitReport')">
+            <div class="kpi-title">Current Day Profit</div>
+            <div class="kpi-value" id="kpiTodayProfit" style="color:#28a745;">₹0</div>
         </div>
-
-        <div class="chart-grid">
-            <div class="chart-container"><canvas id="salesChart"></canvas></div>
-            <div class="chart-container"><canvas id="topSkusChart"></canvas></div>
-            <div class="chart-container"><canvas id="inventoryValueChart"></canvas></div>
-        </div>
-
-        <div id="ConsumptionReport" class="report-section">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <h3>📦 Top 15 Inventory Consuming Products</h3>
-                <button class="btn btn-outline btn-small" onclick="window.toggleDashboardReport('ConsumptionReport')">Close Report</button>
-            </div>
-            <p style="font-size:13px; color:#666;">Tracks actual physical warehouse deductions over the last 30 days.</p>
-            <div class="table-responsive" style="min-height: auto;">
-                <table id="tblDashConsumption">
-                    <thead><tr><th>Rank</th><th>SKU</th><th>Units Consumed</th><th>Current Stock</th><th>Purchase Price</th><th>Inventory Value</th><th>Contribution %</th></tr></thead>
-                    <tbody id="dashConsumptionBody"></tbody>
-                </table>
-            </div>
-        </div>
-
-        <div id="LowStockReport" class="report-section">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <h3>🚨 Predictive Low Stock Alerts</h3>
-                <button class="btn btn-outline btn-small" onclick="window.toggleDashboardReport('LowStockReport')">Close Report</button>
-            </div>
-            <p style="font-size:13px; color:#666;">Predicts stockouts using current stock divided by 7-calendar-day average daily sales.</p>
-            <div class="table-responsive" style="min-height: auto;">
-                <table id="tblDashLowStock">
-                    <thead><tr><th>SKU</th><th>Current Stock</th><th>7 Day Sales</th><th>Daily Average</th><th>Days Remaining</th><th>Status</th></tr></thead>
-                    <tbody id="dashLowStockBody"></tbody>
-                </table>
-            </div>
-        </div>
-
-        <div id="DeadStockReport" class="report-section">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <h3>💀 Dead & Slow Moving Stock Report</h3>
-                <button class="btn btn-outline btn-small" onclick="window.toggleDashboardReport('DeadStockReport')">Close Report</button>
-            </div>
-            <div class="report-grid">
-                <div class="report-box"><h5 style="color:#28a745;">New (0-29 days)</h5><h3 id="dsActiveCount">0</h3></div>
-                <div class="report-box"><h5 style="color:#ffc107;">Slow (30-59 days)</h5><h3 id="dsSlowCount">0</h3></div>
-                <div class="report-box"><h5 style="color:#dc3545;">Dead (60-89 days)</h5><h3 id="dsDeadCount">0</h3></div>
-                <div class="report-box"><h5 style="color:#343a40;">Critical (90+ days)</h5><h3 id="dsCriticalCount">0</h3></div>
-                <div class="report-box" style="border-color:#dc3545; background-color:#fff5f5;"><h5 style="color:#dc3545;">Total Dead Stock Value</h5><h3 id="dsTotalValue">₹0</h3></div>
-            </div>
-            <div class="table-responsive" style="min-height: auto;">
-                <table id="tblDashDeadStock">
-                    <thead><tr><th>SKU</th><th>Current Stock</th><th>Purchase Price</th><th>Inventory Value</th><th>Last Sale/Added Date</th><th>Days Since Sale</th><th>Status</th></tr></thead>
-                    <tbody id="dashDeadStockBody"></tbody>
-                </table>
-            </div>
-        </div>
-
-        <div id="InventoryValueReport" class="report-section">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <h3>💰 Inventory Valuation Report</h3>
-                <button class="btn btn-outline btn-small" onclick="window.toggleDashboardReport('InventoryValueReport')">Close Report</button>
-            </div>
-            <div class="report-grid">
-                <div class="report-box"><h5 style="color:#856404;">Rack Value</h5><h3 id="valRack">₹0</h3></div>
-                <div class="report-box"><h5 style="color:#0c5460;">Warehouse Value</h5><h3 id="valWh">₹0</h3></div>
-                <div class="report-box" style="background:#e3f2fd; border-color:#90caf9;"><h5 style="color:#0277bd;">Total Inventory Value</h5><h3 id="valTotal">₹0</h3></div>
-            </div>
-            <h4>Top 10 Most Valuable Products</h4>
-            <div class="table-responsive" style="min-height: auto;">
-                <table id="tblDashValuation">
-                    <thead><tr><th>SKU</th><th>Current Stock</th><th>Purchase Price</th><th>Inventory Value</th></tr></thead>
-                    <tbody id="dashValuationBody"></tbody>
-                </table>
-            </div>
-        </div>
-
-        <div id="ProfitReport" class="report-section">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <h3>📈 Profitability Dashboard</h3>
-                <button class="btn btn-outline btn-small" onclick="window.toggleDashboardReport('ProfitReport')">Close Report</button>
-            </div>
-            <div class="report-grid">
-                <div class="report-box"><h5 style="color:#20c997;">Today's Profit</h5><h3 id="profitToday">₹0</h3></div>
-                <div class="report-box"><h5 style="color:#007bff;">Last 7 Days Profit</h5><h3 id="profitWeek">₹0</h3></div>
-                <div class="report-box"><h5 style="color:#6f42c1;">Last 30 Days Profit</h5><h3 id="profitMonth">₹0</h3></div>
-                <div class="report-box" style="background:#f8f9fa;"><h5 style="color:#333;">Avg Margin % (30d)</h5><h3 id="profitMargin">0%</h3></div>
-            </div>
-            <h4>Top Profitable Products (30 Days)</h4>
-            <div class="table-responsive" style="min-height: auto;">
-                <table id="tblDashProfit">
-                    <thead><tr><th>Master SKU</th><th>Units Consumed</th><th>Revenue</th><th>Profit</th><th>Margin %</th></tr></thead>
-                    <tbody id="dashProfitBody"></tbody>
-                </table>
-            </div>
+        <div class="kpi-card" onclick="window.toggleDashboardReport('ConsumptionReport')">
+            <div class="kpi-title">Highest Consumption (30d)</div>
+            <div class="kpi-value" id="kpiHighSku" style="font-size: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">-</div>
+            <div class="kpi-subtitle"><span>🔥</span> <span id="kpiHighUnits" style="color: #d84315;">0 Units Consumed</span></div>
         </div>
     </div>
+
+    <!-- SECTION 2 & 3: ACTION CENTER & CHARTS -->
+    <div class="action-charts-layout">
+        
+        <!-- Action Center -->
+        <div class="action-center">
+            <h3>Things Requiring Attention</h3>
+            <div class="action-row" onclick="window.toggleDashboardReport('LowStockReport')">
+                <div class="title">🔴 Low Stock</div>
+                <span class="badge badge-critical" id="actLowStock">0</span>
+            </div>
+            <div class="action-row" onclick="window.toggleDashboardReport('PendingMappingReport')">
+                <div class="title">🟠 Pending Mapping</div>
+                <span class="badge badge-warning" id="actPending">0</span>
+            </div>
+            <div class="action-row" onclick="window.toggleDashboardReport('StockShortageReport')">
+                <div class="title">🔴 Stock Shortage</div>
+                <span class="badge badge-critical" id="actShortage">0</span>
+            </div>
+            <div class="action-row" onclick="window.toggleDashboardReport('DeadStockReport')">
+                <div class="title">🟡 Dead Stock</div>
+                <span class="badge badge-warning" id="actDead">0</span>
+            </div>
+            <div class="action-row" onclick="window.openTab(event, 'AmazonFeeEngine')">
+                <div class="title">🟢 Amazon Fee Sync</div>
+                <span class="badge badge-healthy" id="actFeeSync">-</span>
+            </div>
+            <div class="action-row" onclick="window.openTab(event, 'PricingSystem')">
+                <div class="title">🟡 Pricing Missing</div>
+                <span class="badge badge-warning" id="actPricing">0</span>
+            </div>
+        </div>
+
+        <!-- Charts -->
+        <div class="charts-wrapper">
+            <div class="chart-premium" style="grid-column: span 2;"><canvas id="salesChart" height="80"></canvas></div>
+            <div class="chart-premium"><canvas id="topSkusChart"></canvas></div>
+            <div class="chart-premium"><canvas id="inventoryValueChart"></canvas></div>
+        </div>
+    </div>
+
+    <!-- SECTION 4: QUICK ACTIONS -->
+    <div class="quick-actions">
+        <button class="btn-icon" onclick="window.openTab(event, 'OrderProcessing')">📦 Upload Orders</button>
+        <button class="btn-icon" onclick="window.openTab(event, 'MasterStock')">🏭 Upload Inventory</button>
+        <button class="btn-icon" onclick="window.openTab(event, 'ASINMapping')">🔗 Upload Active Listings</button>
+        <button class="btn-icon" onclick="window.openTab(event, 'AmazonFeeEngine')">💰 Amazon Fee Report</button>
+        <button class="btn-icon" onclick="window.openTab(event, 'PricingSystem')">💲 Pricing System</button>
+        <button class="btn-icon" onclick="window.downloadBackup()">💾 Backup</button>
+    </div>
+
+    <!-- REPORTS -->
+    <div id="LowStockReport" class="premium-report">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #e9ecef; padding-bottom: 10px; margin-bottom: 15px;">
+            <h3 style="margin:0;">🔴 Low Stock Report (Running Products)</h3>
+            <button class="btn btn-outline btn-small" onclick="window.toggleDashboardReport('LowStockReport')">Close ×</button>
+        </div>
+        <div class="table-responsive" style="min-height: auto;"><table id="tblDashLowStock"><thead><tr><th>SKU</th><th>Current Stock</th><th>7 Day Sales</th><th>Daily Average</th><th>Days Remaining</th><th>Status</th></tr></thead><tbody id="dashLowStockBody"></tbody></table></div>
+    </div>
+
+    <div id="DeadStockReport" class="premium-report">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #e9ecef; padding-bottom: 10px; margin-bottom: 15px;">
+            <h3 style="margin:0;">💀 Dead Stock Report (90+ Days No Sale)</h3>
+            <button class="btn btn-outline btn-small" onclick="window.toggleDashboardReport('DeadStockReport')">Close ×</button>
+        </div>
+        <div class="table-responsive" style="min-height: auto;"><table id="tblDashDeadStock"><thead><tr><th>SKU</th><th>Current Stock</th><th>Purchase Price</th><th>Inventory Value</th><th>Days Since Sale</th><th>Status</th></tr></thead><tbody id="dashDeadStockBody"></tbody></table></div>
+    </div>
+    
+    <div id="InventoryValueReport" class="premium-report">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #e9ecef; padding-bottom: 10px; margin-bottom: 15px;">
+            <h3 style="margin:0;">💰 Inventory Value Report</h3>
+            <button class="btn btn-outline btn-small" onclick="window.toggleDashboardReport('InventoryValueReport')">Close ×</button>
+        </div>
+        <h4>Running Products</h4>
+        <div class="table-responsive" style="min-height: 250px;"><table id="tblDashValRunning"><thead><tr><th>SKU</th><th>Current Stock</th><th>Purchase Price</th><th>Inventory Value</th></tr></thead><tbody id="dashValRunningBody"></tbody></table></div>
+        <h4 style="margin-top: 20px;">Dead Products</h4>
+        <div class="table-responsive" style="min-height: 250px;"><table id="tblDashValDead"><thead><tr><th>SKU</th><th>Current Stock</th><th>Purchase Price</th><th>Inventory Value</th></tr></thead><tbody id="dashValDeadBody"></tbody></table></div>
+    </div>
+
+    <div id="ConsumptionReport" class="premium-report">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #e9ecef; padding-bottom: 10px; margin-bottom: 15px;">
+            <h3 style="margin:0;">🔥 Top Consumption Report (Top 15)</h3>
+            <button class="btn btn-outline btn-small" onclick="window.toggleDashboardReport('ConsumptionReport')">Close ×</button>
+        </div>
+        <div class="table-responsive" style="min-height: auto;"><table id="tblDashConsumption"><thead><tr><th>Rank</th><th>SKU</th><th>Units Consumed</th><th>Current Stock</th><th>Purchase Price</th><th>Inventory Value</th><th>Contribution %</th></tr></thead><tbody id="dashConsumptionBody"></tbody></table></div>
+    </div>
+</div>
 
 
     <div id="AmazonFeeEngine" class="tabcontent">
@@ -962,16 +967,17 @@
     };
     
     // FIX: Removed active class from all, add to target, auto smooth-scroll
+    window.dashboardCache = null;
+
     window.toggleDashboardReport = function(reportId) {
-        console.log(reportId + ' Clicked');
         let el = document.getElementById(reportId);
         let isActive = el.classList.contains('active');
         
-        document.querySelectorAll('.report-section').forEach(r => r.classList.remove('active'));
+        document.querySelectorAll('.premium-report').forEach(r => r.classList.remove('active'));
         
         if(!isActive) {
             el.classList.add('active');
-            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'start' }), 300);
         }
     };
 
@@ -1309,141 +1315,127 @@
         return { dsNew, dsSlow, dsDead, dsCrit, dsValue, dsHtml };
     };
 
-    window.calculateDashboardMetrics = function() {
+   window.calculateDashboardMetrics = function() {
         let db = getDB();
+        if(Object.keys(db.masters).length === 0) return;
+
         let todayStr = getTodayStr();
         let sevenDaysAgo = getDaysAgoStr(7);
         let thirtyDaysAgo = getDaysAgoStr(30);
+        let ninetyDaysAgo = getDaysAgoStr(90);
         
         let ordersArray = Object.values(db.processedOrders || {});
         
-        // Modules
-        let valMetrics = window.calculateInventoryValue(db);
-        let profMetrics = window.calculateProfit(db, ordersArray, thirtyDaysAgo, sevenDaysAgo, todayStr);
-        let consMetrics = window.calculateTopInventoryConsumers(db, ordersArray, 30);
-        let lowMetrics = window.calculateLowStock(db, ordersArray, sevenDaysAgo);
-        let deadMetrics = window.calculateDeadStock(db, ordersArray);
+        // 1. Identify Running vs Dead SKUs
+        let lastSaleMap = {};
+        ordersArray.forEach(o => {
+            let parts = (o.master || "").split(" + ");
+            parts.forEach(p => {
+                let s = p.replace(/\(x\d+\)/, "").trim();
+                if(!lastSaleMap[s] || new Date(o.date) > new Date(lastSaleMap[s])) { lastSaleMap[s] = o.date; }
+            });
+        });
 
-        // Update Standard DOM Widgets
-        document.getElementById('dashTotalSkus').innerText = Object.keys(db.masters).length;
-        document.getElementById('dashTotalUnits').innerText = valMetrics.totalUnits.toLocaleString();
-        document.getElementById('dashTotalValue').innerText = `₹${valMetrics.totalValue.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}`;
+        let runningSkus = new Set();
+        let deadSkus = new Set();
         
-        // Order Timeline Widget
+        for(let sku in db.masters) {
+            let lastSale = lastSaleMap[sku];
+            if(lastSale && lastSale >= ninetyDaysAgo) { runningSkus.add(sku); } 
+            else { deadSkus.add(sku); }
+        }
+
+        // 2. Calculate Aggregates Separately
+        let runValue = 0, runUnits = 0, deadValue = 0, deadUnits = 0;
+        let runningValList = [], deadValList = [];
+        
+        for(let sku in db.masters) {
+            let stock = db.masters[sku] || 0;
+            let cost = db.purchasePrices[sku] || 0;
+            let val = stock * cost;
+            if(runningSkus.has(sku)) {
+                runUnits += stock; runValue += val;
+                runningValList.push({sku, qty: stock, cost, val});
+            } else {
+                deadUnits += stock; deadValue += val;
+                deadValList.push({sku, qty: stock, cost, val, days: lastSaleMap[sku] ? diffDays(lastSaleMap[sku]) : '90+'});
+            }
+        }
+
+        // 3. Inject into KPI Bar
+        document.getElementById('kpiRunValue').innerText = `₹${runValue.toLocaleString()}`;
+        document.getElementById('kpiDeadValue').innerText = `₹${deadValue.toLocaleString()} Locked in Dead Stock`;
+        document.getElementById('kpiRunUnits').innerText = runUnits.toLocaleString();
+        document.getElementById('kpiDeadUnits').innerText = `${deadUnits.toLocaleString()} Dead Stock Units`;
+        document.getElementById('kpiRunSkus').innerText = runningSkus.size.toLocaleString();
+        document.getElementById('kpiDeadSkus').innerText = `${deadSkus.size} Dead SKUs`;
+
         let todayCount = 0, weekCount = 0, monthCount = 0;
         ordersArray.forEach(o => {
             if(o.date === todayStr) todayCount++;
             if(o.date >= sevenDaysAgo) weekCount++;
             if(o.date >= thirtyDaysAgo) monthCount++;
         });
-        document.getElementById('dashTodayOrders').innerText = todayCount;
-        document.getElementById('dashWeekOrders').innerText = weekCount;
-        document.getElementById('dashMonthOrders').innerText = monthCount;
+        document.getElementById('kpiTodayOrders').innerText = todayCount;
+        document.getElementById('kpi7dOrders').innerText = weekCount;
+        document.getElementById('kpi30dOrders').innerText = monthCount;
 
-        // Pending Order & Shortage Metrics
-        let pendingCount = 0;
-        let pendingUnits = 0;
-        for(let k in db.pendingOrders) {
-            pendingCount++;
-            pendingUnits += (db.pendingOrders[k].qty || 0);
-        }
-        
-        let shortageCount = 0;
-        let shortageUnits = 0;
-        for(let k in db.stockShortage) {
-            shortageCount++;
-            shortageUnits += (db.stockShortage[k].shortageQty || 0);
-        }
-        
-        let recoveredOrders = db.recoveredOrdersCount || 0;
+        let profMetrics = window.calculateProfit(db, ordersArray, thirtyDaysAgo, sevenDaysAgo, todayStr);
+        document.getElementById('kpiTodayProfit').innerText = `₹${profMetrics.todayProfit.toLocaleString(undefined, {maximumFractionDigits:0})}`;
 
-        document.getElementById('dashPendingOrders').innerText = pendingCount;
-        document.getElementById('dashPendingUnits').innerText = `${pendingUnits} Units`;
-        document.getElementById('dashShortageOrders').innerText = shortageCount;
-        document.getElementById('dashShortageUnits').innerText = `${shortageUnits} Units Missing`;
-        document.getElementById('dashRecoveredOrders').innerText = recoveredOrders;
-
-        let feeMeta = db.feeSyncMeta || { lastDate: '-', count: 0 };
-        document.getElementById('dashFeeSyncDate').innerText = feeMeta.lastDate;
-        document.getElementById('dashFeeSyncCount').innerText = `${feeMeta.count} SKUs Updated`;
-
-        // Update Dead/Low stock summary
-        document.getElementById('dashLowStock').innerText = `${lowMetrics.lsCount} Products`;
-        document.getElementById('dashDeadStock').innerText = `${deadMetrics.dsDead + deadMetrics.dsCrit} Products`;
-
-        // Update Profit Sub-Dashboard
-        document.getElementById('dashTodayProfit').innerText = `₹${profMetrics.todayProfit.toLocaleString(undefined, {maximumFractionDigits:0})}`;
-        document.getElementById('profitToday').innerText = `₹${profMetrics.todayProfit.toLocaleString(undefined, {maximumFractionDigits:0})}`;
-        document.getElementById('profitWeek').innerText = `₹${profMetrics.weekProfit.toLocaleString(undefined, {maximumFractionDigits:0})}`;
-        document.getElementById('profitMonth').innerText = `₹${profMetrics.monthProfit.toLocaleString(undefined, {maximumFractionDigits:0})}`;
-        let avgMargin = profMetrics.monthRevenue > 0 ? (profMetrics.monthProfit / profMetrics.monthRevenue) * 100 : 0;
-        document.getElementById('profitMargin').innerText = `${avgMargin.toFixed(1)}%`;
-
-        // Update Consumption Sub-Dashboard & Cards
+        let consMetrics = window.calculateTopInventoryConsumers(db, ordersArray, 30);
         if (consMetrics.length > 0) {
-            document.getElementById('dashHighestConsumption').innerText = consMetrics[0].sku;
-            document.getElementById('dashHighestConsumptionSubtitle').innerText = `${consMetrics[0].unitsConsumed.toLocaleString()} Units Consumed`;
+            document.getElementById('kpiHighSku').innerText = consMetrics[0].sku;
+            document.getElementById('kpiHighUnits').innerText = `${consMetrics[0].unitsConsumed.toLocaleString()} Units Consumed`;
         } else {
-            document.getElementById('dashHighestConsumption').innerText = "-";
-            document.getElementById('dashHighestConsumptionSubtitle').innerText = "0 Units Consumed";
+            document.getElementById('kpiHighSku').innerText = "-";
+            document.getElementById('kpiHighUnits').innerText = "0 Units Consumed";
         }
+
+        // 4. Action Center Populators
+        let lowMetrics = window.calculateLowStock(db, ordersArray, sevenDaysAgo);
+        document.getElementById('actLowStock').innerText = lowMetrics.lsCount;
+        document.getElementById('dashLowStockBody').innerHTML = lowMetrics.lsHtml || '<tr><td colspan="6" style="text-align:center;">All stock healthy!</td></tr>';
+
+        document.getElementById('actDead').innerText = deadSkus.size;
+        let deadHtml = '';
+        deadValList.sort((a,b) => b.val - a.val).forEach(i => {
+            if(i.qty > 0) deadHtml += `<tr><td><strong>${i.sku}</strong></td><td>${i.qty}</td><td>₹${i.cost}</td><td>₹${i.val.toLocaleString()}</td><td style="color:#dc3545; font-weight:bold;">${i.days}</td><td><span class="badge badge-warning">Dead</span></td></tr>`;
+        });
+        document.getElementById('dashDeadStockBody').innerHTML = deadHtml || '<tr><td colspan="6" style="text-align:center;">No dead stock.</td></tr>';
+
+        let pendingCount = Object.keys(db.pendingOrders || {}).length;
+        let shortageCount = Object.keys(db.stockShortage || {}).length;
+        document.getElementById('actPending').innerText = pendingCount;
+        document.getElementById('actShortage').innerText = shortageCount;
         
-        // FIX: Ensure slice(0,15) is strictly enforced for Top 15 display
+        let feeMeta = db.feeSyncMeta || { lastDate: '-' };
+        document.getElementById('actFeeSync').innerText = feeMeta.lastDate || '-';
+
+        let pricingMissing = 0;
+        for(let sSku in db.pricingSKUs) { if(!db.pricingSKUs[sSku].currSell) pricingMissing++; }
+        document.getElementById('actPricing').innerText = pricingMissing;
+
+        // 5. Build Running vs Dead Value Tables
+        let runValHtml = '';
+        runningValList.sort((a,b) => b.val - a.val).forEach(i => runValHtml += `<tr><td><strong>${i.sku}</strong></td><td>${i.qty}</td><td>₹${i.cost}</td><td style="color:#007bff; font-weight:bold;">₹${i.val.toLocaleString()}</td></tr>`);
+        document.getElementById('dashValRunningBody').innerHTML = runValHtml || '<tr><td colspan="4" style="text-align:center;">No data</td></tr>';
+        
+        let deadValHtml = '';
+        deadValList.sort((a,b) => b.val - a.val).forEach(i => {
+            if(i.qty > 0) deadValHtml += `<tr><td><strong>${i.sku}</strong></td><td>${i.qty}</td><td>₹${i.cost}</td><td style="color:#c62828; font-weight:bold;">₹${i.val.toLocaleString()}</td></tr>`;
+        });
+        document.getElementById('dashValDeadBody').innerHTML = deadValHtml || '<tr><td colspan="4" style="text-align:center;">No data</td></tr>';
+
+        // 6. Build Top 15 Consumption Table
         let consHtml = '';
         consMetrics.slice(0, 15).forEach((item, idx) => {
-            consHtml += `<tr>
-                <td>#${idx + 1}</td>
-                <td><strong>${item.sku}</strong></td>
-                <td style="color:#d84315; font-weight:bold;">${item.unitsConsumed.toLocaleString()}</td>
-                <td>${item.currentStock.toLocaleString()}</td>
-                <td>₹${item.purchasePrice.toFixed(2)}</td>
-                <td>₹${item.inventoryValue.toLocaleString()}</td>
-                <td>${item.contributionPercent.toFixed(1)}%</td>
-            </tr>`;
+            consHtml += `<tr><td>#${idx + 1}</td><td><strong>${item.sku}</strong></td><td style="color:#d84315; font-weight:bold;">${item.unitsConsumed.toLocaleString()}</td><td>${item.currentStock.toLocaleString()}</td><td>₹${item.purchasePrice.toFixed(2)}</td><td>₹${item.inventoryValue.toLocaleString()}</td><td>${item.contributionPercent.toFixed(1)}%</td></tr>`;
         });
         document.getElementById('dashConsumptionBody').innerHTML = consHtml || '<tr><td colspan="7" style="text-align:center;">No consumption data found.</td></tr>';
 
-        // Populate Table Bodies
-        document.getElementById('dashLowStockBody').innerHTML = lowMetrics.lsHtml || '<tr><td colspan="6" style="text-align:center;">All stock levels healthy!</td></tr>';
-        
-        document.getElementById('dsActiveCount').innerText = deadMetrics.dsNew;
-        document.getElementById('dsSlowCount').innerText = deadMetrics.dsSlow;
-        document.getElementById('dsDeadCount').innerText = deadMetrics.dsDead;
-        document.getElementById('dsCriticalCount').innerText = deadMetrics.dsCrit;
-        document.getElementById('dsTotalValue').innerText = `₹${deadMetrics.dsValue.toLocaleString()}`;
-        document.getElementById('dashDeadStockBody').innerHTML = deadMetrics.dsHtml || '<tr><td colspan="7" style="text-align:center;">No slow/dead stock detected.</td></tr>';
-
-        document.getElementById('valRack').innerText = `₹${valMetrics.rackValue.toLocaleString()}`;
-        document.getElementById('valWh').innerText = `₹${valMetrics.whValue.toLocaleString()}`;
-        document.getElementById('valTotal').innerText = `₹${valMetrics.totalValue.toLocaleString()}`;
-        
-        valMetrics.valuationList.sort((a,b) => b.val - a.val);
-        let valHtml = '';
-        valMetrics.valuationList.slice(0,10).forEach(i => {
-            valHtml += `<tr><td><strong>${i.sku}</strong></td><td>${i.qty}</td><td>₹${i.cost.toFixed(2)}</td><td style="color:#0277bd; font-weight:bold;">₹${i.val.toLocaleString()}</td></tr>`;
-        });
-        document.getElementById('dashValuationBody').innerHTML = valHtml || '<tr><td colspan="4">No data</td></tr>';
-
-        // Profit Table Assembly
-        let consumptionMap = {};
-        consMetrics.forEach(c => consumptionMap[c.sku] = c.unitsConsumed);
-        
-        let profitArr = Object.keys(profMetrics.skuProfit30d).map(sku => ({
-            sku, 
-            qty: consumptionMap[sku] || 0, 
-            rev: profMetrics.skuRevenue30d[sku], 
-            prof: profMetrics.skuProfit30d[sku],
-            margin: profMetrics.skuRevenue30d[sku] > 0 ? (profMetrics.skuProfit30d[sku] / profMetrics.skuRevenue30d[sku] * 100).toFixed(1) : 0
-        })).sort((a,b) => b.prof - a.prof);
-        
-        let profHtml = '';
-        profitArr.slice(0,10).forEach(i => {
-            let pColor = i.prof > 0 ? 'green' : 'red';
-            profHtml += `<tr><td><strong>${i.sku}</strong></td><td>${i.qty}</td><td>₹${i.rev.toLocaleString()}</td><td style="color:${pColor}; font-weight:bold;">₹${i.prof.toLocaleString(undefined, {maximumFractionDigits:0})}</td><td>${i.margin}%</td></tr>`;
-        });
-        document.getElementById('dashProfitBody').innerHTML = profHtml || '<tr><td colspan="5">No sales in 30 days</td></tr>';
-
-        renderDashboardCharts(ordersArray, valMetrics.valuationList, consMetrics, sevenDaysAgo, valMetrics.totalValue);
+        // 7. Render Charts
+        renderDashboardCharts(ordersArray, runningValList, consMetrics, sevenDaysAgo, runValue);
     };
 
     // FIX: Drilldown logic execution
@@ -1541,7 +1533,7 @@
                     backgroundColor: '#28a745'
                 }]
             },
-            options: { responsive: true, plugins: { title: { display: true, text: 'Top 15 Inventory Consuming Products' } } }
+            options: { indexAxis: 'y', responsive: true, plugins: { title: { display: true, text: 'Top 15 Inventory Consuming Products' } } }
         });
 
         // Chart 3: Inventory Value (Pie logic fix with Drilldown)
