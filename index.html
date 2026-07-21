@@ -213,9 +213,13 @@
                 <div class="title">🔴 Low Stock</div>
                 <span class="badge badge-critical" id="actLowStock">0</span>
             </div>
+            <div class="action-row" onclick="window.openTab(event, 'ASINMapping')">
+                <div class="title">🟠 Unmapped ASINs</div>
+                <span class="badge badge-warning" id="actUnmappedAsins">0</span>
+            </div>
             <div class="action-row" onclick="window.toggleDashboardReport('PendingMappingReport')">
-                <div class="title">🟠 Pending Mapping</div>
-                <span class="badge badge-warning" id="actPending">0</span>
+                <div class="title">🟠 Stuck Orders (Mapping)</div>
+                <span class="badge badge-warning" id="actPendingOrders">0</span>
             </div>
             <div class="action-row" onclick="window.toggleDashboardReport('StockShortageReport')">
                 <div class="title">🔴 Stock Shortage</div>
@@ -1404,9 +1408,25 @@
         });
         document.getElementById('dashDeadStockBody').innerHTML = deadHtml || '<tr><td colspan="6" style="text-align:center;">No dead stock.</td></tr>';
 
-        let pendingCount = Object.keys(db.pendingOrders || {}).length;
+        // 1. Calculate Stuck Orders
+        let pendingOrdersCount = Object.keys(db.pendingOrders || {}).length;
+        
+        // 2. Calculate Unmapped ASINs
+        let unmappedAsinCount = 0;
+        for (let asin in db.asins) {
+            let mappingData = db.asins[asin];
+            let masters = mappingData.masters || [];
+            if (masters.length === 0 && !mappingData.master) {
+                unmappedAsinCount++;
+            }
+        }
+
+        // 3. Shortage Count
         let shortageCount = Object.keys(db.stockShortage || {}).length;
-        document.getElementById('actPending').innerText = pendingCount;
+        
+        // Update UI Action Center
+        document.getElementById('actPendingOrders').innerText = pendingOrdersCount;
+        document.getElementById('actUnmappedAsins').innerText = unmappedAsinCount;
         document.getElementById('actShortage').innerText = shortageCount;
         
         let feeMeta = db.feeSyncMeta || { lastDate: '-' };
