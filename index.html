@@ -1703,100 +1703,102 @@
 
         let reader = new FileReader();
         reader.onload = async function(e) {
-            let data = new Uint8Array(e.target.result); 
-            let workbook = XLSX.read(data, {type: 'array'});
-            
-            // Read as 2D array first to find the true header mathematically
-            let rawArray = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], {header: 1});
-            
-            let headerIndex = rawArray.findIndex(row => {
-                let rStr = row.map(c => String(c).toLowerCase()).join(" ");
-                return rStr.includes('date/time') && (rStr.includes('type') || rStr.includes('transaction type')) && rStr.includes('sku');
-            });
-
-            if(headerIndex === -1) headerIndex = 0; // Fallback to normal parsing if standard format
-
-            // Reparse the sheet explicitly using the found header row
-            let json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], {range: headerIndex});
-            
-            let skuData = {};
-            let ignoreTypes = ["SERVICE FEE", "TRANSFER", "ADJUSTMENT", "STORAGE FEE", "RESERVE", "ACCOUNT LEVEL RESERVE", "FBA INVENTORY FEE"];
-
-            json.forEach(rawRow => {
-                let row = normalizeRow(rawRow);
-                let type = (row["TYPE"] || row["TRANSACTION TYPE"] || row["TRANSACTION-TYPE"] || "").toString().toUpperCase().trim();
+            try {
+                let data = new Uint8Array(e.target.result); 
+                let workbook = XLSX.read(data, {type: 'array'});
                 
-                if(!type || ignoreTypes.includes(type)) return;
+                let rawArray = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], {header: 1});
+                
+                let headerIndex = rawArray.findIndex(row => {
+                    let rStr = row.map(c => String(c).toLowerCase()).join(" ");
+                    return rStr.includes('date/time') && (rStr.includes('type') || rStr.includes('transaction type')) && rStr.includes('sku');
+                });
 
-                let sku = row["SKU"] || row["SELLER SKU"] || row["SELLER-SKU"];
-                if(!sku) return;
-                sku = sku.toString().trim().replace(/[.#$\[\]\/]/g, "_");
+                if(headerIndex === -1) headerIndex = 0; 
 
-                let qty = parseInt(row["QUANTITY"] || row["QTY"]) || 0;
-                if(qty === 0) return; 
+                let json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], {range: headerIndex});
+                
+                let skuData = {};
+                let ignoreTypes = ["SERVICE FEE", "TRANSFER", "ADJUSTMENT", "STORAGE FEE", "RESERVE", "ACCOUNT LEVEL RESERVE", "FBA INVENTORY FEE"];
 
-                let parseVal = (v) => parseFloat((v || "0").toString().replace(/[^0-9.-]/g, '')) || 0;
+                json.forEach(rawRow => {
+                    let row = normalizeRow(rawRow);
+                    let type = (row["TYPE"] || row["TRANSACTION TYPE"] || row["TRANSACTION-TYPE"] || "").toString().toUpperCase().trim();
+                    
+                    if(!type || ignoreTypes.includes(type)) return;
 
-                let prodSales = parseVal(row["PRODUCT SALES"] || row["PRODUCT-SALES"]);
-                let shipCredits = parseVal(row["SHIPPING CREDITS"] || row["SHIPPING-CREDITS"]);
-                let sellingFees = parseVal(row["SELLING FEES"] || row["SELLING-FEES"]);
-                let fbaFees = parseVal(row["FBA FEES"] || row["FBA-FEES"]);
-                let otherFees = parseVal(row["OTHER TRANSACTION FEES"] || row["OTHER-TRANSACTION-FEES"] || row["OTHER"]);
-                let total = parseVal(row["TOTAL"]);
+                    let sku = row["SKU"] || row["SELLER SKU"] || row["SELLER-SKU"];
+                    if(!sku) return;
+                    sku = sku.toString().trim().replace(/[.#$\[\]\/]/g, "_");
 
-                if(!skuData[sku]) {
-                    skuData[sku] = { qty: 0, prodSales: 0, shipCredits: 0, sellingFees: 0, fbaFees: 0, otherFees: 0, total: 0 };
+                    let qty = parseInt(row["QUANTITY"] || row["QTY"]) || 0;
+                    if(qty === 0) return; 
+
+                    let parseVal = (v) => parseFloat((v || "0").toString().replace(/[^0-9.-]/g, '')) || 0;
+
+                    let prodSales = parseVal(row["PRODUCT SALES"] || row["PRODUCT-SALES"]);
+                    let shipCredits = parseVal(row["SHIPPING CREDITS"] || row["SHIPPING-CREDITS"]);
+                    let sellingFees = parseVal(row["SELLING FEES"] || row["SELLING-FEES"]);
+                    let fbaFees = parseVal(row["FBA FEES"] || row["FBA-FEES"]);
+                    let otherFees = parseVal(row["OTHER TRANSACTION FEES"] || row["OTHER-TRANSACTION-FEES"] || row["OTHER"]);
+                    let total = parseVal(row["TOTAL"]);
+
+                    if(!skuData[sku]) {
+                        skuData[sku] = { qty: 0, prodSales: 0, shipCredits: 0, sellingFees: 0, fbaFees: 0, otherFees: 0, total: 0 };
+                    }
+                    
+                    skuData[sku].qty += qty;
+                    skuData[sku].prodSales += prodSales;
+                    skuData[sku].shipCredits += shipCredits;
+                    skuData[sku].sellingFees += sellingFees;
+                    skuData[sku].fbaFees += fbaFees;
+                    skuData[sku].otherFees += otherFees;
+                    skuData[sku].total += total;
+                });
+
+                window.tempFeeCalculations = skuData;
+
+                let html = "";
+                let skuCount = 0;
+                let totalRevMetric = 0;
+                let totalAmzFeeMetric = 0;
+                
+                for(let sku in skuData) {
+                    let d = skuData[sku];
+                    let rev = d.prodSales + d.shipCredits;
+                    let avgAmz = Math.abs(d.sellingFees) / d.qty;
+                    let avgDel = Math.abs(d.fbaFees) / d.qty;
+                    let avgOther = Math.abs(d.otherFees) / d.qty;
+                    
+                    totalRevMetric += rev;
+                    totalAmzFeeMetric += Math.abs(d.sellingFees);
+                    
+                    html += `<tr>
+                        <td><strong>${sku}</strong></td>
+                        <td>${d.qty}</td>
+                        <td>₹${rev.toFixed(2)}</td>
+                        <td style="color:#d84315;">₹${avgAmz.toFixed(2)}</td>
+                        <td style="color:#d84315;">₹${avgDel.toFixed(2)}</td>
+                        <td style="color:#d84315;">₹${avgOther.toFixed(2)}</td>
+                        <td style="font-weight:bold; color:#2e7d32; background-color:#e8f5e9;">₹${d.total.toFixed(2)}</td>
+                    </tr>`;
+                    skuCount++;
                 }
                 
-                skuData[sku].qty += qty;
-                skuData[sku].prodSales += prodSales;
-                skuData[sku].shipCredits += shipCredits;
-                skuData[sku].sellingFees += sellingFees;
-                skuData[sku].fbaFees += fbaFees;
-                skuData[sku].otherFees += otherFees;
-                skuData[sku].total += total;
-            });
-
-            window.tempFeeCalculations = skuData;
-
-            let html = "";
-            let skuCount = 0;
-            let totalRevMetric = 0;
-            let totalAmzFeeMetric = 0;
-            
-            for(let sku in skuData) {
-                let d = skuData[sku];
-                let rev = d.prodSales + d.shipCredits;
-                let avgAmz = Math.abs(d.sellingFees) / d.qty;
-                let avgDel = Math.abs(d.fbaFees) / d.qty;
-                let avgOther = Math.abs(d.otherFees) / d.qty;
+                document.getElementById("feeEngineTableBody").innerHTML = html || '<tr><td colspan="7" style="text-align:center;">No valid order rows found.</td></tr>';
                 
-                totalRevMetric += rev;
-                totalAmzFeeMetric += Math.abs(d.sellingFees);
-                
-                html += `<tr>
-                    <td><strong>${sku}</strong></td>
-                    <td>${d.qty}</td>
-                    <td>₹${rev.toFixed(2)}</td>
-                    <td style="color:#d84315;">₹${avgAmz.toFixed(2)}</td>
-                    <td style="color:#d84315;">₹${avgDel.toFixed(2)}</td>
-                    <td style="color:#d84315;">₹${avgOther.toFixed(2)}</td>
-                    <td style="font-weight:bold; color:#2e7d32; background-color:#e8f5e9;">₹${d.total.toFixed(2)}</td>
-                </tr>`;
-                skuCount++;
+                if(skuCount > 0) {
+                    document.getElementById('applyFeesBtn').style.display = 'inline-block';
+                    let msgDiv = document.getElementById('feeSummaryMsg');
+                    msgDiv.innerHTML = `Transaction Report Processed Successfully<br>SKUs Updated: ${skuCount}<br>Total Revenue: ₹${totalRevMetric.toFixed(2)}<br>Amazon Fees: ₹${totalAmzFeeMetric.toFixed(2)}`;
+                    msgDiv.style.display = 'block';
+                } else {
+                    document.getElementById('feeSummaryMsg').style.display = 'none';
+                }
+            } catch (error) {
+                console.error("Transaction processing error:", error);
+                alert("Failed to parse the Transaction Report. Please upload a valid Unified Transaction Report.");
             }
-            
-            document.getElementById("feeEngineTableBody").innerHTML = html || '<tr><td colspan="7" style="text-align:center;">No valid order rows found.</td></tr>';
-            
-            if(skuCount > 0) {
-                document.getElementById('applyFeesBtn').style.display = 'inline-block';
-                let msgDiv = document.getElementById('feeSummaryMsg');
-                msgDiv.innerHTML = `Transaction Report Processed Successfully<br>SKUs Updated: ${skuCount}<br>Total Revenue: ₹${totalRevMetric.toFixed(2)}<br>Amazon Fees: ₹${totalAmzFeeMetric.toFixed(2)}`;
-                msgDiv.style.display = 'block';
-            } else {
-                document.getElementById('feeSummaryMsg').style.display = 'none';
-            }
-            
         }; 
         reader.readAsArrayBuffer(file);
     };
@@ -2452,59 +2454,64 @@
         let file = document.getElementById('listingsReportFile').files[0]; if(!file) return alert("Select a file!");
         let reader = new FileReader();
         reader.onload = async function(e) {
-            let data = new Uint8Array(e.target.result); let workbook = XLSX.read(data, {type: 'array'});
-            let json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
-            let db = getDB(); let count = 0;
-            
-            let freshLiveStock = {}; 
-
-            if (db.asins) {
-                for (let k in db.asins) {
-                    if (k.includes(' ') || k.length > 15) delete db.asins[k];
-                }
-            }
-
-            json.forEach(rawRow => {
-                let row = normalizeRow(rawRow); 
-                let asin = extractASIN(row); 
-                let sSku = extractSellerSKU(row); 
-                let title = row["ITEM-NAME"] || row["PRODUCT TITLE"] || row["TITLE"] || "No Title";
-                let filePrice = extractPrice(row); 
+            try {
+                let data = new Uint8Array(e.target.result); let workbook = XLSX.read(data, {type: 'array'});
+                let json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+                let db = getDB(); let count = 0;
                 
-                let qty = extractQuantity(row); 
+                let freshLiveStock = {}; 
 
-                if(asin) { 
-                    asin = asin.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_");
+                if (db.asins) {
+                    for (let k in db.asins) {
+                        if (k.includes(' ') || k.length > 15) delete db.asins[k];
+                    }
+                }
+
+                json.forEach(rawRow => {
+                    let row = normalizeRow(rawRow); 
+                    let asin = extractASIN(row); 
+                    let sSku = extractSellerSKU(row); 
+                    let title = row["ITEM-NAME"] || row["PRODUCT TITLE"] || row["TITLE"] || "No Title";
+                    let filePrice = extractPrice(row); 
                     
-                    if(!db.asins[asin]) { 
-                        db.asins[asin] = {masters: [], title: title, sellerSku: sSku || "N/A"}; 
-                        count++; 
-                    } else { 
-                        if(db.asins[asin].title==="No Title") db.asins[asin].title=title; 
-                        if(!db.asins[asin].sellerSku || db.asins[asin].sellerSku === "N/A") db.asins[asin].sellerSku=sSku; 
-                    }
+                    let qty = extractQuantity(row); 
 
-                    if (!isNaN(qty)) {
-                        freshLiveStock[asin] = { qty: qty, sSku: sSku || "N/A" }; 
-                    }
-
-                    if (sSku) {
-                        sSku = sSku.toString().trim().replace(/[.#$\[\]\/]/g, "_");
-                        if (!db.pricingSKUs[sSku]) { 
-                            db.pricingSKUs[sSku] = { asin: asin, amzFee: 0, delFee: 0, packFee: 0, otherFee: 0, currSell: filePrice || 0, desSell: 0 }; 
+                    if(asin) { 
+                        asin = asin.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_");
+                        
+                        if(!db.asins[asin]) { 
+                            db.asins[asin] = {masters: [], title: title, sellerSku: sSku || "N/A"}; 
+                            count++; 
                         } else { 
-                            if (filePrice > 0) db.pricingSKUs[sSku].currSell = filePrice; 
+                            if(db.asins[asin].title==="No Title") db.asins[asin].title=title; 
+                            if(!db.asins[asin].sellerSku || db.asins[asin].sellerSku === "N/A") db.asins[asin].sellerSku=sSku; 
+                        }
+
+                        if (!isNaN(qty)) {
+                            freshLiveStock[asin] = { qty: qty, sSku: sSku || "N/A" }; 
+                        }
+
+                        if (sSku) {
+                            sSku = sSku.toString().trim().replace(/[.#$\[\]\/]/g, "_");
+                            if (!db.pricingSKUs[sSku]) { 
+                                db.pricingSKUs[sSku] = { asin: asin, amzFee: 0, delFee: 0, packFee: 0, otherFee: 0, currSell: filePrice || 0, desSell: 0 }; 
+                            } else { 
+                                if (filePrice > 0) db.pricingSKUs[sSku].currSell = filePrice; 
+                            }
                         }
                     }
+                }); 
+                
+                if (Object.keys(freshLiveStock).length > 0) {
+                    db.liveAmazonStock = freshLiveStock;
                 }
-            }); 
-            
-            if (Object.keys(freshLiveStock).length > 0) {
-                db.liveAmazonStock = freshLiveStock;
+                
+                await saveDB(db); 
+                alert(`${count} ASINs Loaded! Live Stock & Mappings have been cleaned and updated.`);
+            } catch (error) {
+                console.error("Listings mapping error:", error);
+                alert("Failed to read the Active Listings file. Make sure it's a valid Amazon report format.");
             }
-            
-            await saveDB(db); 
-            alert(`${count} ASINs Loaded! Live Stock & Mappings have been cleaned and updated.`);
         }; reader.readAsArrayBuffer(file);
     };
 
@@ -2877,165 +2884,187 @@ window.addNewSkuFromMapping = async function(asin) {
     };
 
     // --- TAB 6: DAILY ORDERS & DIRECT LEDGER UPDATE ---
+    // --- Helper for Excel Dates ---
+    function parseExcelDate(rawDate) {
+        if (!rawDate) return null;
+        if (!isNaN(rawDate)) { // Handle Excel Serial Numbers (e.g., 44211)
+            let d = new Date(Math.round((rawDate - 25569) * 86400 * 1000));
+            return d.toISOString().split('T')[0];
+        }
+        try { // Handle standard ISO/String dates
+            return new Date(rawDate).toISOString().split('T')[0];
+        } catch(e) {
+            return null;
+        }
+    }
+
+    // --- REPLACED: TAB 6 DAILY ORDERS WITH ERROR HANDLING & DATE FIX ---
     window.processOrderFile = function() {
         let file = document.getElementById('dailyOrderFile').files[0]; 
         if(!file) return alert("Select Business/Order file!");
         
         let reader = new FileReader();
         reader.onload = async function(e) {
-            let data = new Uint8Array(e.target.result); 
-            let workbook = XLSX.read(data, {type: 'array'});
-            let json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
-            let db = getDB(); 
-            
-            let processedOrders = db.processedOrders || {}; 
-            let pendingOrders = db.pendingOrders || {};
-            let totalDeductionsFound = 0;
-            let totalPendingRouted = 0;
-
-            let dailyDeductions = {}; 
-            let totalDeductedStock = {}; 
-
-            json.forEach(rawRow => {
-                let row = normalizeRow(rawRow); 
-                let asin = extractASIN(row); 
-                let ordered = extractOrders(row) || parseInt(row["QUANTITY"] || 0); 
-                let orderId = extractOrderID(row); 
+            try {
+                let data = new Uint8Array(e.target.result); 
+                let workbook = XLSX.read(data, {type: 'array'});
+                let json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+                let db = getDB(); 
                 
-                let rawStatus = (row["ORDER-STATUS"] || row["ORDER STATUS"] || "").toUpperCase();
-                let rawDate = row["PURCHASE-DATE"] || row["PURCHASE DATE"] || row["DATE"];
-                
-                let orderDate = rawDate ? rawDate.toString().split('T')[0].split(' ')[0] : null;
+                let processedOrders = db.processedOrders || {}; 
+                let pendingOrders = db.pendingOrders || {};
+                let totalDeductionsFound = 0;
+                let totalPendingRouted = 0;
 
-                let isShippedOrDelivered = rawStatus.includes('SHIPPED') && !rawStatus.includes('RETURNING');
-                
-                if(asin && ordered > 0 && orderDate && isShippedOrDelivered) { 
-                    asin = asin.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_"); 
+                let dailyDeductions = {}; 
+                let totalDeductedStock = {}; 
+
+                json.forEach(rawRow => {
+                    let row = normalizeRow(rawRow); 
+                    let asin = extractASIN(row); 
+                    let ordered = extractOrders(row) || parseInt(row["QUANTITY"] || 0); 
+                    let orderId = extractOrderID(row); 
                     
-                    let uniqueKey = orderId ? `${orderId}_${asin}` : `NO_ID_${Date.now()}_${Math.random()}`;
+                    let rawStatus = (row["ORDER-STATUS"] || row["ORDER STATUS"] || "").toUpperCase();
+                    let rawDate = row["PURCHASE-DATE"] || row["PURCHASE DATE"] || row["DATE"];
+                    
+                    // NEW: Safely parse the date
+                    let orderDate = parseExcelDate(rawDate);
 
-                    if (!processedOrders[uniqueKey] && !pendingOrders[uniqueKey]) {
-                        let mapping = db.asins[asin]; 
+                    let isShippedOrDelivered = rawStatus.includes('SHIPPED') && !rawStatus.includes('RETURNING');
+                    
+                    if(asin && ordered > 0 && orderDate && isShippedOrDelivered) { 
+                        asin = asin.toString().trim().toUpperCase().replace(/[.#$\[\]\/]/g, "_"); 
                         
-                        let mappedMasters = mapping ? (mapping.masters || []) : [];
-                        if (mappedMasters.length === 0 && mapping && mapping.master) {
-                            mappedMasters.push({ sku: mapping.master, pack: mapping.pack || 1 });
-                        }
+                        let uniqueKey = orderId ? `${orderId}_${asin}` : `NO_ID_${Date.now()}_${Math.random()}`;
 
-                        if (mappedMasters.length > 0) { 
-                            let logMasterNames = [];
-                            let logTotalQtyDeducted = 0;
-
-                            mappedMasters.forEach(m => {
-                                let totalQtyDeducted = (ordered * m.pack);
-                                logMasterNames.push(`${m.sku} (x${m.pack})`);
-                                logTotalQtyDeducted += totalQtyDeducted;
-                                
-                                if (!dailyDeductions[orderDate]) dailyDeductions[orderDate] = {};
-                                dailyDeductions[orderDate][m.sku] = (dailyDeductions[orderDate][m.sku] || 0) + totalQtyDeducted;
-
-                                totalDeductedStock[m.sku] = (totalDeductedStock[m.sku] || 0) + totalQtyDeducted; 
-                            });
-
-                            totalDeductionsFound++; 
+                        if (!processedOrders[uniqueKey] && !pendingOrders[uniqueKey]) {
+                            let mapping = db.asins[asin]; 
                             
-                            if (db.liveAmazonStock && db.liveAmazonStock[asin]) {
-                                db.liveAmazonStock[asin].qty = Math.max(0, db.liveAmazonStock[asin].qty - ordered);
+                            let mappedMasters = mapping ? (mapping.masters || []) : [];
+                            if (mappedMasters.length === 0 && mapping && mapping.master) {
+                                mappedMasters.push({ sku: mapping.master, pack: mapping.pack || 1 });
                             }
 
-                            processedOrders[uniqueKey] = {
-                                date: orderDate,
-                                orderId: orderId || "N/A",
-                                master: logMasterNames.join(" + "), 
-                                asin: asin,
-                                qty: logTotalQtyDeducted 
-                            };
-                        } else {
-                            pendingOrders[uniqueKey] = {
-                                asin: asin,
-                                sellerSku: extractSellerSKU(row) || "N/A",
-                                orderId: orderId || "N/A",
-                                qty: ordered,
-                                date: orderDate,
-                                status: "PENDING_MAPPING"
-                            };
-                            totalPendingRouted++;
+                            if (mappedMasters.length > 0) { 
+                                let logMasterNames = [];
+                                let logTotalQtyDeducted = 0;
+
+                                mappedMasters.forEach(m => {
+                                    let totalQtyDeducted = (ordered * m.pack);
+                                    logMasterNames.push(`${m.sku} (x${m.pack})`);
+                                    logTotalQtyDeducted += totalQtyDeducted;
+                                    
+                                    if (!dailyDeductions[orderDate]) dailyDeductions[orderDate] = {};
+                                    dailyDeductions[orderDate][m.sku] = (dailyDeductions[orderDate][m.sku] || 0) + totalQtyDeducted;
+
+                                    totalDeductedStock[m.sku] = (totalDeductedStock[m.sku] || 0) + totalQtyDeducted; 
+                                });
+
+                                totalDeductionsFound++; 
+                                
+                                if (db.liveAmazonStock && db.liveAmazonStock[asin]) {
+                                    db.liveAmazonStock[asin].qty = Math.max(0, db.liveAmazonStock[asin].qty - ordered);
+                                }
+
+                                processedOrders[uniqueKey] = {
+                                    date: orderDate,
+                                    orderId: orderId || "N/A",
+                                    master: logMasterNames.join(" + "), 
+                                    asin: asin,
+                                    qty: logTotalQtyDeducted 
+                                };
+                            } else {
+                                pendingOrders[uniqueKey] = {
+                                    asin: asin,
+                                    sellerSku: extractSellerSKU(row) || "N/A",
+                                    orderId: orderId || "N/A",
+                                    qty: ordered,
+                                    date: orderDate,
+                                    status: "PENDING_MAPPING"
+                                };
+                                totalPendingRouted++;
+                            }
                         }
                     }
+                });
+                
+                if (totalDeductionsFound === 0 && totalPendingRouted === 0) {
+                    return alert("Notice: No new valid shipped/delivered orders found.");
                 }
-            });
-            
-            if (totalDeductionsFound === 0 && totalPendingRouted === 0) {
-                return alert("Notice: No new valid shipped/delivered orders found.");
-            }
-            
-            let sortedDates = Object.keys(dailyDeductions).sort((a, b) => new Date(a) - new Date(b));
-            sortedDates.forEach(date => {
-                for (let mSku in dailyDeductions[date]) {
-                    let deduction = dailyDeductions[date][mSku];
-                    if(!db.sales[mSku]) db.sales[mSku] = []; 
-                    db.sales[mSku].push(deduction); 
-                    if(db.sales[mSku].length > 3) db.sales[mSku].shift(); 
-                }
-            });
+                
+                let sortedDates = Object.keys(dailyDeductions).sort((a, b) => new Date(a) - new Date(b));
+                sortedDates.forEach(date => {
+                    for (let mSku in dailyDeductions[date]) {
+                        let deduction = dailyDeductions[date][mSku];
+                        if(!db.sales[mSku]) db.sales[mSku] = []; 
+                        db.sales[mSku].push(deduction); 
+                        if(db.sales[mSku].length > 3) db.sales[mSku].shift(); 
+                    }
+                });
 
-            let html = "";
-            for (let mSku in totalDeductedStock) {
-                let deduction = totalDeductedStock[mSku]; 
-                let opening = db.masters[mSku] || 0; 
-                
-                let actualDeduction = deduction;
-                let shortage = 0;
-                
-                if (deduction > opening) {
-                    shortage = deduction - opening;
-                    actualDeduction = opening; 
+                let html = "";
+                for (let mSku in totalDeductedStock) {
+                    let deduction = totalDeductedStock[mSku]; 
+                    let opening = db.masters[mSku] || 0; 
                     
-                    if(!db.stockShortage) db.stockShortage = {};
-                    db.stockShortage[`${Date.now()}_${mSku}`] = {
-                        masterSku: mSku,
-                        requiredQty: deduction,
-                        availableQty: opening,
-                        shortageQty: shortage,
-                        date: getTodayStr()
-                    };
-                }
-
-                let closing = opening - actualDeduction;
-                html += `<tr><td><strong>${mSku}</strong></td><td>${opening}</td><td style="color:red; font-weight:bold;">- ${actualDeduction}</td><td style="color:green; font-weight:bold;">${closing}</td></tr>`; 
-                
-                db.masters[mSku] = closing;
-                
-                if(db.locations[mSku]) {
-                    let qtyToDeduct = actualDeduction;
-                    let rack = db.locations[mSku].rack || 0;
-                    let wh = db.locations[mSku].wh || 0;
-
-                    if (rack >= qtyToDeduct) {
-                        rack -= qtyToDeduct; 
-                        qtyToDeduct = 0;
-                    } else {
-                        qtyToDeduct -= rack; 
-                        rack = 0;            
+                    let actualDeduction = deduction;
+                    let shortage = 0;
+                    
+                    if (deduction > opening) {
+                        shortage = deduction - opening;
+                        actualDeduction = opening; 
+                        
+                        if(!db.stockShortage) db.stockShortage = {};
+                        db.stockShortage[`${Date.now()}_${mSku}`] = {
+                            masterSku: mSku,
+                            requiredQty: deduction,
+                            availableQty: opening,
+                            shortageQty: shortage,
+                            date: getTodayStr()
+                        };
                     }
 
-                    wh = Math.max(0, wh - qtyToDeduct);
+                    let closing = opening - actualDeduction;
+                    html += `<tr><td><strong>${mSku}</strong></td><td>${opening}</td><td style="color:red; font-weight:bold;">- ${actualDeduction}</td><td style="color:green; font-weight:bold;">${closing}</td></tr>`; 
+                    
+                    db.masters[mSku] = closing;
+                    
+                    if(db.locations[mSku]) {
+                        let qtyToDeduct = actualDeduction;
+                        let rack = db.locations[mSku].rack || 0;
+                        let wh = db.locations[mSku].wh || 0;
 
-                    db.locations[mSku].rack = rack;
-                    db.locations[mSku].wh = wh;
+                        if (rack >= qtyToDeduct) {
+                            rack -= qtyToDeduct; 
+                            qtyToDeduct = 0;
+                        } else {
+                            qtyToDeduct -= rack; 
+                            rack = 0;            
+                        }
+
+                        wh = Math.max(0, wh - qtyToDeduct);
+
+                        db.locations[mSku].rack = rack;
+                        db.locations[mSku].wh = wh;
+                    }
                 }
-            }
+                
+                db.processedOrders = processedOrders; 
+                db.pendingOrders = pendingOrders;
+                
+                let tbody = document.getElementById("orderTableBody"); 
+                if(tbody) {
+                    tbody.innerHTML = html;
+                    setTimeout(() => window.buildTableFilters("tblOrderProcessing"), 50);
+                }
+                await saveDB(db); 
+                alert(`File Processed!\n\nDeducted Mapped Orders: ${totalDeductionsFound}\nRouted to Pending Queue: ${totalPendingRouted}`);
             
-            db.processedOrders = processedOrders; 
-            db.pendingOrders = pendingOrders;
-            
-            let tbody = document.getElementById("orderTableBody"); 
-            if(tbody) {
-                tbody.innerHTML = html;
-                setTimeout(() => window.buildTableFilters("tblOrderProcessing"), 50);
+            } catch (error) {
+                console.error("Order processing error:", error);
+                alert("Error processing file. Please ensure it is a valid Amazon Business/Order report.");
             }
-            await saveDB(db); 
-            alert(`File Processed!\n\nDeducted Mapped Orders: ${totalDeductionsFound}\nRouted to Pending Queue: ${totalPendingRouted}`);
         }; 
         reader.readAsArrayBuffer(file);
     };
