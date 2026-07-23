@@ -1610,6 +1610,7 @@
 
 
     // --- NEW: RECONCILIATION ENGINE ---
+    // --- NEW: RECONCILIATION ENGINE (Allows Negative Stock) ---
     window.reconcilePendingOrders = function(db, asinToReconcile = null) {
         if(!db.pendingOrders) return 0;
         let recoveredCount = 0;
@@ -1635,13 +1636,13 @@
                         logMasterNames.push(`${m.sku} (x${m.pack})`);
                         logTotalQtyDeducted += requiredDeduction;
                         
-                        // ZERO-FLOOR SHORTAGE LOGIC
+                        // NEGATIVE STOCK ALLOWED LOGIC
                         let opening = db.masters[m.sku] || 0;
-                        let actualDeduction = requiredDeduction;
+                        let actualDeduction = requiredDeduction; // Deduct full amount
                         
                         if(requiredDeduction > opening) {
                             let shortage = requiredDeduction - opening;
-                            actualDeduction = opening; 
+                            // Humne yaha se 'actualDeduction = opening' hata diya hai taaki deduction pura ho
                             
                             if(!db.stockShortage) db.stockShortage = {};
                             db.stockShortage[`RECON_${Date.now()}_${m.sku}`] = {
@@ -1654,7 +1655,7 @@
                             };
                         }
                         
-                        db.masters[m.sku] = opening - actualDeduction;
+                        db.masters[m.sku] = opening - actualDeduction; // Ab ye negative ho sakta hai
                         
                         if(db.locations[m.sku]) {
                             let qtyToDeduct = actualDeduction;
@@ -1668,7 +1669,7 @@
                                 qtyToDeduct -= rack; 
                                 rack = 0;            
                             }
-                            wh = Math.max(0, wh - qtyToDeduct);
+                            wh = wh - qtyToDeduct; // Math.max(0, ...) hata diya, Warehouse ab negative hoga
                             db.locations[m.sku].rack = rack;
                             db.locations[m.sku].wh = wh;
                         }
@@ -3008,12 +3009,12 @@ window.addNewSkuFromMapping = async function(asin) {
                     let deduction = totalDeductedStock[mSku]; 
                     let opening = db.masters[mSku] || 0; 
                     
-                    let actualDeduction = deduction;
+                    let actualDeduction = deduction; // Hamesha full amount deduct hoga
                     let shortage = 0;
                     
                     if (deduction > opening) {
                         shortage = deduction - opening;
-                        actualDeduction = opening; 
+                        // Yahan se bhi actualDeduction = opening hata diya gaya hai
                         
                         if(!db.stockShortage) db.stockShortage = {};
                         db.stockShortage[`${Date.now()}_${mSku}`] = {
@@ -3025,8 +3026,10 @@ window.addNewSkuFromMapping = async function(asin) {
                         };
                     }
 
-                    let closing = opening - actualDeduction;
-                    html += `<tr><td><strong>${mSku}</strong></td><td>${opening}</td><td style="color:red; font-weight:bold;">- ${actualDeduction}</td><td style="color:green; font-weight:bold;">${closing}</td></tr>`; 
+                    let closing = opening - actualDeduction; 
+                    let closingColor = closing < 0 ? "red" : "green"; // Agar negative hua toh red highlight hoga
+                    
+                    html += `<tr><td><strong>${mSku}</strong></td><td>${opening}</td><td style="color:red; font-weight:bold;">- ${actualDeduction}</td><td style="color:${closingColor}; font-weight:bold;">${closing}</td></tr>`; 
                     
                     db.masters[mSku] = closing;
                     
@@ -3043,7 +3046,7 @@ window.addNewSkuFromMapping = async function(asin) {
                             rack = 0;            
                         }
 
-                        wh = Math.max(0, wh - qtyToDeduct);
+                        wh = wh - qtyToDeduct; // Math.max(0, ...) hata diya gaya hai
 
                         db.locations[mSku].rack = rack;
                         db.locations[mSku].wh = wh;
