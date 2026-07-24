@@ -213,7 +213,7 @@
                 <div class="title">🔴 Low Stock</div>
                 <span class="badge badge-critical" id="actLowStock">0</span>
             </div>
-            <div class="action-row" onclick="window.openTab(event, 'ASINMapping')">
+            <div class="action-row" onclick="window.toggleDashboardReport('UnmappedReport')">
                 <div class="title">🟠 Unmapped ASINs</div>
                 <span class="badge badge-warning" id="actUnmappedAsins">0</span>
             </div>
@@ -221,7 +221,7 @@
                 <div class="title">🟠 Stuck Orders (Mapping)</div>
                 <span class="badge badge-warning" id="actPendingOrders">0</span>
             </div>
-            <div class="action-row" onclick="window.toggleDashboardReport('StockShortageReport')">
+            <div class="action-row" onclick="window.toggleDashboardReport('ShortageReport')">
                 <div class="title">🔴 Stock Shortage</div>
                 <span class="badge badge-critical" id="actShortage">0</span>
             </div>
@@ -233,7 +233,7 @@
                 <div class="title">🟢 Amazon Fee Sync</div>
                 <span class="badge badge-healthy" id="actFeeSync">-</span>
             </div>
-            <div class="action-row" onclick="window.openTab(event, 'PricingSystem')">
+            <div class="action-row" onclick="window.toggleDashboardReport('PricingMissingReport')">
                 <div class="title">🟡 Pricing Missing</div>
                 <span class="badge badge-warning" id="actPricing">0</span>
             </div>
@@ -276,13 +276,10 @@
     
     <div id="InventoryValueReport" class="premium-report">
         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #e9ecef; padding-bottom: 10px; margin-bottom: 15px;">
-            <h3 style="margin:0;">💰 Inventory Value Report</h3>
+            <h3 style="margin:0;">💰 Running Inventory Value Report</h3>
             <button class="btn btn-outline btn-small" onclick="window.toggleDashboardReport('InventoryValueReport')">Close ×</button>
         </div>
-        <h4>Running Products</h4>
         <div class="table-responsive" style="min-height: 250px;"><table id="tblDashValRunning"><thead><tr><th>SKU</th><th>Current Stock</th><th>Purchase Price</th><th>Inventory Value</th></tr></thead><tbody id="dashValRunningBody"></tbody></table></div>
-        <h4 style="margin-top: 20px;">Dead Products</h4>
-        <div class="table-responsive" style="min-height: 250px;"><table id="tblDashValDead"><thead><tr><th>SKU</th><th>Current Stock</th><th>Purchase Price</th><th>Inventory Value</th></tr></thead><tbody id="dashValDeadBody"></tbody></table></div>
     </div>
 
     <div id="ConsumptionReport" class="premium-report">
@@ -291,6 +288,30 @@
             <button class="btn btn-outline btn-small" onclick="window.toggleDashboardReport('ConsumptionReport')">Close ×</button>
         </div>
         <div class="table-responsive" style="min-height: auto;"><table id="tblDashConsumption"><thead><tr><th>Rank</th><th>SKU</th><th>Units Consumed</th><th>Current Stock</th><th>Purchase Price</th><th>Inventory Value</th><th>Contribution %</th></tr></thead><tbody id="dashConsumptionBody"></tbody></table></div>
+    </div>
+
+    <div id="UnmappedReport" class="premium-report">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #e9ecef; padding-bottom: 10px; margin-bottom: 15px;">
+            <h3 style="margin:0;">🟠 Pending Unmapped ASINs</h3>
+            <button class="btn btn-outline btn-small" onclick="window.toggleDashboardReport('UnmappedReport')">Close ×</button>
+        </div>
+        <div class="table-responsive" style="min-height: auto;"><table id="tblDashUnmapped"><thead><tr><th>Amazon SKU (Ref)</th><th>ASIN</th><th>Product Title</th><th>Status</th></tr></thead><tbody id="dashUnmappedBody"></tbody></table></div>
+    </div>
+
+    <div id="ShortageReport" class="premium-report">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #e9ecef; padding-bottom: 10px; margin-bottom: 15px;">
+            <h3 style="margin:0;">🔴 Stock Shortage (Log)</h3>
+            <button class="btn btn-outline btn-small" onclick="window.toggleDashboardReport('ShortageReport')">Close ×</button>
+        </div>
+        <div class="table-responsive" style="min-height: auto;"><table id="tblDashShortage"><thead><tr><th>Date</th><th>Master SKU</th><th>Required Qty</th><th>Shortage</th></tr></thead><tbody id="dashShortageBody"></tbody></table></div>
+    </div>
+
+    <div id="PricingMissingReport" class="premium-report">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #e9ecef; padding-bottom: 10px; margin-bottom: 15px;">
+            <h3 style="margin:0;">🟡 Missing Pricing</h3>
+            <button class="btn btn-outline btn-small" onclick="window.toggleDashboardReport('PricingMissingReport')">Close ×</button>
+        </div>
+        <div class="table-responsive" style="min-height: auto;"><table id="tblDashPricingMissing"><thead><tr><th>Seller SKU</th><th>ASIN</th><th>Master SKU</th><th>Status</th></tr></thead><tbody id="dashPricingMissingBody"></tbody></table></div>
     </div>
 </div>
 
@@ -1410,42 +1431,58 @@
 
         // 1. Calculate Stuck Orders
         let pendingOrdersCount = Object.keys(db.pendingOrders || {}).length;
+        document.getElementById('actPendingOrders').innerText = pendingOrdersCount;
         
-        // 2. Calculate Unmapped ASINs
+        // 2. Calculate Unmapped ASINs & Build Table
         let unmappedAsinCount = 0;
+        let unmappedHtml = '';
         for (let asin in db.asins) {
             let mappingData = db.asins[asin];
             let masters = mappingData.masters || [];
             if (masters.length === 0 && !mappingData.master) {
                 unmappedAsinCount++;
+                unmappedHtml += `<tr><td><span class="ref-sku">${mappingData.sellerSku || "N/A"}</span></td><td><strong>${asin}</strong></td><td><span title="${mappingData.title}">${mappingData.title}</span></td><td><span class="badge badge-red">Pending</span></td></tr>`;
             }
         }
-
-        // 3. Shortage Count
-        let shortageCount = Object.keys(db.stockShortage || {}).length;
-        
-        // Update UI Action Center
-        document.getElementById('actPendingOrders').innerText = pendingOrdersCount;
         document.getElementById('actUnmappedAsins').innerText = unmappedAsinCount;
+        let unmappedBody = document.getElementById('dashUnmappedBody');
+        if (unmappedBody) unmappedBody.innerHTML = unmappedHtml || '<tr><td colspan="4" style="text-align:center;">No unmapped ASINs!</td></tr>';
+
+        // 3. Shortage Count & Build Table
+        let shortageCount = Object.keys(db.stockShortage || {}).length;
+        let shortageHtml = '';
+        for (let key in db.stockShortage) {
+            let s = db.stockShortage[key];
+            shortageHtml += `<tr><td>${s.date}</td><td><strong>${s.masterSku}</strong></td><td>${s.requiredQty}</td><td style="color:#c62828; font-weight:bold;">-${s.shortageQty}</td></tr>`;
+        }
         document.getElementById('actShortage').innerText = shortageCount;
+        let shortageBody = document.getElementById('dashShortageBody');
+        if (shortageBody) shortageBody.innerHTML = shortageHtml || '<tr><td colspan="4" style="text-align:center;">No stock shortages!</td></tr>';
         
+        // 4. Amazon Fee Sync Update
         let feeMeta = db.feeSyncMeta || { lastDate: '-' };
         document.getElementById('actFeeSync').innerText = feeMeta.lastDate || '-';
 
+        // 5. Pricing Missing & Build Table
         let pricingMissing = 0;
-        for(let sSku in db.pricingSKUs) { if(!db.pricingSKUs[sSku].currSell) pricingMissing++; }
+        let pricingHtml = '';
+        for(let sSku in db.pricingSKUs) { 
+            let pData = db.pricingSKUs[sSku];
+            if(!pData.currSell) {
+                pricingMissing++; 
+                let masterSku = "Not Mapped";
+                if (db.asins[pData.asin] && db.asins[pData.asin].master) { masterSku = db.asins[pData.asin].master; }
+                pricingHtml += `<tr><td><strong>${sSku}</strong></td><td>${pData.asin}</td><td>${masterSku}</td><td><span class="badge badge-warning">Price Missing</span></td></tr>`;
+            }
+        }
         document.getElementById('actPricing').innerText = pricingMissing;
+        let pricingBody = document.getElementById('dashPricingMissingBody');
+        if (pricingBody) pricingBody.innerHTML = pricingHtml || '<tr><td colspan="4" style="text-align:center;">All prices updated!</td></tr>';
 
-        // 5. Build Running vs Dead Value Tables
+        // 6. Build Running Value Table (Dead Stock Removed)
         let runValHtml = '';
         runningValList.sort((a,b) => b.val - a.val).forEach(i => runValHtml += `<tr><td><strong>${i.sku}</strong></td><td>${i.qty}</td><td>₹${i.cost}</td><td style="color:#007bff; font-weight:bold;">₹${i.val.toLocaleString()}</td></tr>`);
         document.getElementById('dashValRunningBody').innerHTML = runValHtml || '<tr><td colspan="4" style="text-align:center;">No data</td></tr>';
-        
-        let deadValHtml = '';
-        deadValList.sort((a,b) => b.val - a.val).forEach(i => {
-            if(i.qty > 0) deadValHtml += `<tr><td><strong>${i.sku}</strong></td><td>${i.qty}</td><td>₹${i.cost}</td><td style="color:#c62828; font-weight:bold;">₹${i.val.toLocaleString()}</td></tr>`;
-        });
-        document.getElementById('dashValDeadBody').innerHTML = deadValHtml || '<tr><td colspan="4" style="text-align:center;">No data</td></tr>';
 
         // 6. Build Top 15 Consumption Table
         let consHtml = '';
